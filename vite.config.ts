@@ -11,12 +11,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
       manifest: {
-        name: 'AR 유적지 탐방',
-        short_name: 'AR유적',
-        description: '내 주변 유적지를 지도와 AR 카메라로 찾아보는 웹앱',
+        name: '역사담 歷史談',
+        short_name: '역사담',
+        description: '유적지 현장에서 역사 속 인물을 만나 대화하는 웹앱',
         lang: 'ko',
-        theme_color: '#7a2e1d',
-        background_color: '#f6f1e7',
+        theme_color: '#f4ead9',
+        background_color: '#f4ead9',
         display: 'standalone',
         orientation: 'portrait',
         start_url: base,
@@ -24,7 +24,7 @@ export default defineConfig({
         icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg}', 'data/index.json'],
+        globPatterns: ['**/*.{js,css,html,svg}', 'data/index.json', 'data/figures.json', 'figures/*'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.includes('/data/'),

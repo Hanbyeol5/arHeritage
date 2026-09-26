@@ -21,6 +21,26 @@ export interface HeritageIndex {
   items: HeritageSummary[];
 }
 
+/** 초상이 없을 때 쓰는 목업 일러스트 종류 */
+export type FigureStyle = 'king' | 'scholar' | 'lady' | 'general';
+
+/** 역사 인물 (public/data/figures.json) */
+export interface Figure {
+  id: string;
+  name: string;
+  hanja: string;
+  /** 호 또는 직함 */
+  title: string;
+  years: string;
+  /** 메달 우하단 낙관 글자 */
+  seal: string;
+  style: FigureStyle;
+  bio: string;
+  portrait?: string;
+  portraitCredit?: string;
+  sites: { id: string; note: string }[];
+}
+
 /** LLM 보강 단계에서 채워질 관련 인물 */
 export interface RelatedPerson {
   name: string;

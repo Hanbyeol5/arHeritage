@@ -3,68 +3,139 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#7a2e1d" />
+    <meta name="theme-color" content="#f4ead9" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon.svg" />
-    <title>AR 유적지 탐방</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;700&family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet" />
+    <title>역사담 歷史談</title>
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">AR 유적지 탐방</div>
-      <div class="loc" id="loc-status">위치 확인 전</div>
-      <label class="radius">
-        반경
-        <select id="radius">
-          <option value="1000">1km</option>
-          <option value="3000" selected>3km</option>
-          <option value="5000">5km</option>
-          <option value="10000">10km</option>
-        </select>
-      </label>
-    </header>
+    <!-- 목업의 인물 일러스트 (초상이 없는 인물의 메달에 사용) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+    <radialGradient id="paperg" cx="32%" cy="22%" r="85%">
+      <stop offset="0" stop-color="#f8efde"/><stop offset="60%" stop-color="#e7d3b3"/><stop offset="100%" stop-color="#d6bf97"/>
+    </radialGradient>
+    <linearGradient id="skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f1d6b4"/><stop offset="100%" stop-color="#dab187"/>
+    </linearGradient>
+    <linearGradient id="skinSh" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcb085"/><stop offset="100%" stop-color="#c3936b"/>
+    </linearGradient>
+    <radialGradient id="silkCream" cx="34%" cy="24%" r="90%"><stop offset="0" stop-color="#f7efdf"/><stop offset="100%" stop-color="#e3d2b3"/></radialGradient>
+    <radialGradient id="silkRed" cx="34%" cy="24%" r="92%"><stop offset="0" stop-color="#f4e6dd"/><stop offset="100%" stop-color="#e6cabd"/></radialGradient>
+    <radialGradient id="silkCel" cx="34%" cy="24%" r="92%"><stop offset="0" stop-color="#eaf0ea"/><stop offset="100%" stop-color="#cbdcd3"/></radialGradient>
+    <radialGradient id="silkBlush" cx="34%" cy="24%" r="92%"><stop offset="0" stop-color="#f8ece9"/><stop offset="100%" stop-color="#ecd6d0"/></radialGradient>
+    <!-- ====== SCHOLAR (gat) — 선비 ====== -->
+    <g id="figScholar">
+      <rect width="200" height="200" fill="url(#silkCream)"/>
+      <path d="M32 200 L66 152 Q100 139 134 152 L168 200 Z" fill="#4c564f"/>
+      <path d="M66 152 Q100 139 134 152 L127 167 Q100 156 73 167 Z" fill="#3b423c"/>
+      <path d="M86 150 L100 172 L114 150 L108 144 L100 158 L92 144 Z" fill="#f4ede1"/>
+      <path d="M89 127 h22 v17 q-11 7 -22 0 z" fill="url(#skinSh)"/>
+      <path d="M67 97 q-7 0 -6 9 q1 8 8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M133 97 q7 0 6 9 q-1 8 -8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M100 53 C122 53 133 73 133 95 C133 119 119 137 100 137 C81 137 67 119 67 95 C67 73 78 53 100 53 Z" fill="url(#skin)"/>
+      <path d="M71 90 q-3 -19 13 -28 q-6 13 -5 30 q-4 -3 -8 -2z" fill="#241810"/>
+      <path d="M129 90 q3 -19 -13 -28 q6 13 5 30 q4 -3 8 -2z" fill="#241810"/>
+      <path d="M78 91 q8 -4 17 -1" stroke="#3a2a1c" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M105 90 q9 -3 17 1" stroke="#3a2a1c" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M79 100 q8 -5 16 0 q-8 4 -16 0z" fill="#fff"/><circle cx="87" cy="100" r="2.6" fill="#2a1c12"/>
+      <path d="M105 100 q8 -5 16 0 q-8 4 -16 0z" fill="#fff"/><circle cx="113" cy="100" r="2.6" fill="#2a1c12"/>
+      <path d="M100 103 q3 9 4 12 q-4 3 -8 1" fill="none" stroke="#c0926a" stroke-width="1.7" stroke-linecap="round"/>
+      <path d="M86 122 q14 7 28 0 q-5 6 -14 6 q-9 0 -14 -6z" fill="#241810"/>
+      <path d="M83 126 q17 15 34 0 q-3 18 -17 20 q-14 -2 -17 -20z" fill="#241810"/>
+      <path d="M78 56 q0 -31 22 -31 q22 0 22 31 z" fill="#211a13"/>
+      <ellipse cx="100" cy="56" rx="50" ry="12" fill="#1b1610"/>
+    </g>
+    <!-- ====== KING (ikseongwan) — 왕 ====== -->
+    <g id="figKing">
+      <rect width="200" height="200" fill="url(#silkRed)"/>
+      <path d="M28 200 L62 150 Q100 137 138 150 L172 200 Z" fill="#ab362c"/>
+      <path d="M62 150 Q100 137 138 150 L130 169 Q100 157 70 169 Z" fill="#8d2920"/>
+      <circle cx="100" cy="192" r="17" fill="#caa24a"/><circle cx="100" cy="192" r="17" fill="none" stroke="#7a5e22" stroke-width="1"/>
+      <path d="M85 149 L100 171 L115 149 L109 143 L100 157 L91 143 Z" fill="#f4ede1"/>
+      <path d="M88 126 h24 v18 q-12 7 -24 0 z" fill="url(#skinSh)"/>
+      <path d="M65 97 q-7 0 -6 9 q1 8 8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M135 97 q7 0 6 9 q-1 8 -8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M100 50 C124 50 136 71 136 95 C136 120 121 138 100 138 C79 138 64 120 64 95 C64 71 76 50 100 50 Z" fill="url(#skin)"/>
+      <path d="M78 89 q8 -4 18 -1" stroke="#3a2a1c" stroke-width="2.7" fill="none" stroke-linecap="round"/>
+      <path d="M104 88 q10 -3 18 1" stroke="#3a2a1c" stroke-width="2.7" fill="none" stroke-linecap="round"/>
+      <path d="M77 98 q9 -5 18 0 q-9 4 -18 0z" fill="#fff"/><circle cx="86" cy="98" r="2.7" fill="#2a1c12"/>
+      <path d="M105 98 q9 -5 18 0 q-9 4 -18 0z" fill="#fff"/><circle cx="114" cy="98" r="2.7" fill="#2a1c12"/>
+      <path d="M100 101 q4 10 5 13 q-5 3 -9 1" fill="none" stroke="#c0926a" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M85 121 q15 7 30 0 q-5 7 -15 7 q-10 0 -15 -7z" fill="#2a1d12"/>
+      <path d="M82 125 q18 17 36 0 q-2 22 -18 24 q-16 -2 -18 -24z" fill="#2a1d12"/>
+      <path d="M66 67 q0 -9 9 -11 q25 -6 50 0 q9 2 9 11 q-34 -11 -68 0z" fill="#1b150f"/>
+      <path d="M70 66 q-2 -32 30 -32 q32 0 30 32 q-30 -13 -60 0z" fill="#262019"/>
+      <path d="M78 40 q0 -17 22 -17 q22 0 22 17 q-22 -9 -44 0z" fill="#1b150f"/>
+      <rect x="82" y="20" width="6" height="13" rx="2.5" fill="#1b150f"/><rect x="112" y="20" width="6" height="13" rx="2.5" fill="#1b150f"/>
+      <ellipse cx="85" cy="20" rx="5" ry="3" fill="#1b150f"/><ellipse cx="115" cy="20" rx="5" ry="3" fill="#1b150f"/>
+    </g>
+    <!-- ====== LADY (jjok-meori + binyeo) — 여성 ====== -->
+    <g id="figLady">
+      <rect width="200" height="200" fill="url(#silkBlush)"/>
+      <path d="M34 200 L66 154 Q100 142 134 154 L166 200 Z" fill="#e7dccb"/>
+      <path d="M66 154 Q100 142 134 154 L126 200 L74 200 Z" fill="#dccdb6"/>
+      <path d="M86 152 L100 172 L114 152 L107 146 L100 159 L93 146 Z" fill="#fbf7ef"/>
+      <path d="M100 159 q5 12 -2 24 M100 159 q-5 12 2 24" stroke="#b23a32" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M90 130 h20 v15 q-10 7 -20 0 z" fill="url(#skinSh)"/>
+      <path d="M70 100 q-6 0 -5 8 q1 7 7 6 z" fill="url(#skin)"/>
+      <path d="M130 100 q6 0 5 8 q-1 7 -7 6 z" fill="url(#skin)"/>
+      <path d="M100 58 C120 58 131 76 131 97 C131 119 118 138 100 138 C82 138 69 119 69 97 C69 76 80 58 100 58 Z" fill="url(#skin)"/>
+      <path d="M64 92 q-2 -34 36 -36 q38 2 36 36 q-4 -10 -12 -13 q4 -10 -24 -10 q-28 0 -24 10 q-8 3 -12 13z" fill="#1f150e"/>
+      <path d="M100 56 q-20 1 -29 14 q12 -7 29 -7 q17 0 29 7 q-9 -13 -29 -14z" fill="#160f09"/>
+      <ellipse cx="100" cy="50" rx="20" ry="11" fill="#1f150e"/>
+      <rect x="74" y="46" width="52" height="4.5" rx="2" fill="#caa24a"/><circle cx="73" cy="48" r="4" fill="#b23a32"/><circle cx="127" cy="48" r="4" fill="#b23a32"/>
+      <path d="M80 94 q8 -3 16 0" stroke="#3a2a1c" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      <path d="M104 94 q8 -3 16 0" stroke="#3a2a1c" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      <path d="M80 102 q8 -4 15 0 q-7 3 -15 0z" fill="#fff"/><circle cx="88" cy="102" r="2.4" fill="#2a1c12"/>
+      <path d="M105 102 q8 -4 15 0 q-7 3 -15 0z" fill="#fff"/><circle cx="113" cy="102" r="2.4" fill="#2a1c12"/>
+      <path d="M100 105 q2 8 3 11 q-3 2 -6 0" fill="none" stroke="#c0926a" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M93 122 q7 4 14 0 q-3 5 -7 5 q-4 0 -7 -5z" fill="#b8584e"/>
+    </g>
+    <!-- ====== GENERAL (tugu helmet) — 장군 ====== -->
+    <g id="figGeneral">
+      <rect width="200" height="200" fill="url(#silkCel)"/>
+      <path d="M26 200 L58 156 Q100 144 142 156 L174 200 Z" fill="#3c4a47"/>
+      <path d="M58 156 Q100 144 142 156 L135 173 Q100 162 65 173 Z" fill="#2e3a37"/>
+      <g fill="#9aa39b"><circle cx="62" cy="178" r="3"/><circle cx="80" cy="174" r="3"/><circle cx="120" cy="174" r="3"/><circle cx="138" cy="178" r="3"/></g>
+      <path d="M84 152 L100 172 L116 152 L109 146 L100 160 L91 146 Z" fill="#e9e2d3"/>
+      <path d="M88 129 h24 v16 q-12 7 -24 0 z" fill="url(#skinSh)"/>
+      <path d="M66 100 q-7 0 -6 9 q1 8 8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M134 100 q7 0 6 9 q-1 8 -8 7 z" fill="url(#skin)" stroke="#c0926a" stroke-width="1"/>
+      <path d="M100 56 C123 56 134 76 134 98 C134 122 120 140 100 140 C80 140 66 122 66 98 C66 76 77 56 100 56 Z" fill="url(#skin)"/>
+      <path d="M75 92 q11 -6 22 0" stroke="#2c1d12" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      <path d="M103 92 q11 -6 22 0" stroke="#2c1d12" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      <path d="M76 101 q9 -5 19 1 q-9 4 -19 -1z" fill="#fff"/><circle cx="85" cy="101" r="2.8" fill="#221610"/>
+      <path d="M105 102 q10 -6 19 -1 q-9 5 -19 1z" fill="#fff"/><circle cx="114" cy="101" r="2.8" fill="#221610"/>
+      <path d="M100 104 q4 10 5 13 q-5 3 -9 1" fill="none" stroke="#b8895f" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M84 123 q16 8 32 0 q-5 7 -16 7 q-11 0 -16 -7z" fill="#241810"/>
+      <path d="M80 127 q20 20 40 0 q-3 26 -20 28 q-17 -2 -20 -28z" fill="#241810"/>
+      <path d="M54 67 q0 -9 8 -11 q38 -13 76 0 q8 2 8 11 q-46 -17 -92 0z" fill="#384846"/>
+      <path d="M64 65 q0 -38 36 -38 q36 0 36 38 q-36 -17 -72 0z" fill="#566a66"/>
+      <path d="M64 65 q0 -38 36 -38 q36 0 36 38" fill="none" stroke="#82968f" stroke-width="2"/>
+      <path d="M82 36 q18 -8 36 0" fill="none" stroke="#46564f" stroke-width="2"/>
+      <rect x="96" y="14" width="8" height="15" rx="3" fill="#384846"/>
+      <circle cx="100" cy="13" r="6.5" fill="#b23a32"/>
+      <path d="M100 8 q10 -6 15 -17 q-3 13 -15 17z" fill="#b23a32"/>
+    </g>
+    <!-- mystery placeholder (?) -->
+    <g id="figQ">
+      <rect width="200" height="200" fill="url(#paperg)"/>
+      <text x="100" y="138" font-family="Nanum Myeongjo,serif" font-size="120" font-weight="800" text-anchor="middle" fill="#a8915f">?</text>
+    </g>
+  </defs>
+    </svg>
 
-    <main>
-      <section id="view-map" class="view">
-        <div id="map"></div>
-        <div id="map-notice" class="notice" hidden></div>
-        <div class="drawer" id="drawer">
-          <button class="drawer-handle" id="drawer-handle" aria-label="목록 펼치기">
-            <span id="nearby-count">주변 유적지</span>
-          </button>
-          <ul class="nearby-list" id="nearby-list"></ul>
-        </div>
-      </section>
-
-      <section id="view-ar" class="view" hidden>
-        <video id="camera" playsinline muted autoplay></video>
-        <div id="ar-layer" class="ar-layer"></div>
-        <div class="ar-hud">
-          <span class="edge left" id="edge-left"></span>
-          <span class="heading" id="heading">--°</span>
-          <span class="edge right" id="edge-right"></span>
-        </div>
-        <div id="ar-notice" class="notice" hidden></div>
-      </section>
-    </main>
-
-    <nav class="tabbar">
-      <button data-view="map" class="active">지도</button>
-      <button data-view="ar">AR 카메라</button>
-    </nav>
-
-    <div id="sheet" class="sheet" hidden>
-      <div class="sheet-body" id="sheet-body"></div>
-    </div>
-
-    <div id="start" class="start">
-      <div class="start-card">
-        <h1>AR 유적지 탐방</h1>
-        <p>내 위치 주변의 국가유산을 지도와 카메라로 찾아봅니다.<br />위치 권한을 허용해 주세요.</p>
-        <button id="start-btn" class="primary">시작하기</button>
-        <button id="demo-btn" class="link">데모 위치(수원 화성)로 보기</button>
-      </div>
+    <div id="app">
+      <div id="view" class="view"></div>
+      <nav class="nav" id="nav"></nav>
+      <div id="overlay"></div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

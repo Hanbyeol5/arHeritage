@@ -19,9 +19,11 @@ export class LocationTracker {
   private watchId?: number;
   current?: Position;
 
-  onChange(fn: Listener) {
+  /** 구독 해제 함수를 반환 */
+  onChange(fn: Listener, immediate = true): () => void {
     this.listeners.add(fn);
-    if (this.current) fn(this.current);
+    if (immediate && this.current) fn(this.current);
+    return () => this.listeners.delete(fn);
   }
 
   private emit(pos: Position) {

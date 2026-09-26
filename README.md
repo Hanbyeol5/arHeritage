@@ -1,20 +1,23 @@
-# AR 유적지 탐방
+# 역사담 (歷史談) — 웹앱
 
-내 위치 주변의 국가유산을 네이버 지도와 AR 카메라로 보여주는 웹앱 (시범 지역: 경기도).
+유적지 현장에서 역사 속 인물을 만나 대화하는 웹앱 (시범 지역: 경기도).
+Android 앱 [historydam](https://github.com/Hanbyeol5/historydam) 의 디자인(단청·한지 테마, 8개 화면 목업)을 웹으로 옮겼다.
 
 ## 구조
 
 ```
-scripts/fetch-heritage.ts   국가유산청 오픈API 수집 → public/data/*.json (빌드 시점)
-public/data/index.json      지도·AR용 경량 목록
-public/data/detail/*.json   상세 카드용 데이터 (설명문, 이미지, 요약·인물은 LLM 보강 단계에서 추가 예정)
+scripts/fetch-heritage.ts   국가유산청 오픈API 수집 → public/data (빌드 시점)
+public/data/index.json      지도·AR용 유적지 목록 / detail/*.json 상세
+public/data/figures.json    역사 인물 ↔ 유적지 연결 (1단계 수작업 시드, 2단계 LLM 보강 예정)
 src/
-  main.ts          화면 전환, 위치 → 주변 검색 → 지도/목록/AR 갱신
-  map.ts           네이버 지도 (키 없으면 목록 화면으로 대체)
-  ar.ts            카메라 + 방위각 기반 AR 라벨
-  orientation.ts   나침반·기울기 센서 (iOS/Android 대응)
-  location.ts      GPS 추적 (?lat=&lng= 로 위치 고정 가능)
-  sheet.ts         상세 카드
+  main.ts            하단 5탭, 해시 라우팅, 시작 화면
+  app.ts             위치·유적지·인물 상태, 도착 판정(도감·알림 기록)
+  screens/           home · map · camera · ar · chat(Q&A) · voice · figures · profile · notifications
+  figureSheet.ts     인물 선택(딤 시트) · 관련 유적지
+  heritageSheet.ts   유적지 상세 카드
+  arEngine.ts        카메라 + 방위각 AR 라벨 · 타깃 방향 안내
+  naverMap.ts        네이버 지도 (인물 핑 · 유적지 핀)
+  ui/                아이콘 · 초상 메달 · 상단바
 ```
 
 ## 개발

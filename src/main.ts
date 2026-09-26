@@ -1,159 +1,106 @@
 import './style.css';
 import { registerSW } from 'virtual:pwa-register';
-import { ARView } from './ar.ts';
-import { findNearby, loadIndex, type Nearby } from './data.ts';
-import { formatDistance } from './geo.ts';
-import { DEMO_POSITION, LocationTracker, type Position } from './location.ts';
-import { HeritageMap, categoryClass } from './map.ts';
-import { OrientationSensor } from './orientation.ts';
-import { DetailSheet } from './sheet.ts';
-import type { HeritageSummary } from './types.ts';
+import { app } from './app.ts';
+import { closeOverlays } from './heritageSheet.ts';
+import { DEMO_POSITION, LocationTracker } from './location.ts';
+import { Router, type Screen, type Tab } from './router.ts';
+import { arScreen } from './screens/ar.ts';
+import { cameraScreen } from './screens/camera.ts';
+import { chatScreen, qaScreen } from './screens/chat.ts';
+import { figuresScreen } from './screens/figures.ts';
+import { homeScreen } from './screens/home.ts';
+import { mapScreen } from './screens/map.ts';
+import { notificationsScreen } from './screens/notifications.ts';
+import { profileScreen } from './screens/profile.ts';
+import { voiceScreen } from './screens/voice.ts';
+import { el, toast } from './ui/dom.ts';
+import { icons } from './ui/icons.ts';
 
 registerSW({ immediate: true });
 
-const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const view = document.getElementById('view')!;
+const nav = document.getElementById('nav')!;
 
-const state = {
-  items: [] as HeritageSummary[],
-  nearby: [] as Nearby[],
-  radius: Number($<HTMLSelectElement>('radius').value),
-  view: 'map' as 'map' | 'ar',
+/** 하단 5탭 (목업 `.nav`): 카메라 · 지도 · 홈(돌출) · Q&A · 메뉴 */
+const TABS: [Tab, string, string, string][] = [
+  ['camera', '#/camera', icons.camera, '카메라'],
+  ['map', '#/map', icons.map, '지도'],
+  ['home', '#/home', icons.homeFill, '홈'],
+  ['qa', '#/qa', icons.qa, 'Q&A'],
+  ['menu', '#/profile', icons.menu, '메뉴'],
+];
+nav.innerHTML = TABS.map(([tab, href, icon, label]) =>
+  tab === 'home'
+    ? `<a href="${href}" data-tab="${tab}" class="home-tab" aria-label="${label}"><div class="home">${icon}</div></a>`
+    : `<a href="${href}" data-tab="${tab}">${icon}<span class="lbl">${label}</span></a>`,
+).join('');
+
+const onScreen = (s: Screen) => {
+  closeOverlays();
+  document.body.classList.toggle('fullscreen', !!s.fullscreen);
+  nav.querySelectorAll<HTMLElement>('a').forEach((a) => a.classList.toggle('on', a.dataset.tab === s.tab));
 };
 
-const tracker = new LocationTracker();
-const sensor = new OrientationSensor();
-const sheet = new DetailSheet($('sheet'), $('sheet-body'), () => tracker.current, (d) => {
-  switchView('map');
-  heritageMap.panTo(d.lat, d.lng);
-});
-const heritageMap = new HeritageMap($('map'), (id) => sheet.open(id));
-const ar = new ARView(
-  $<HTMLVideoElement>('camera'),
-  $('ar-layer'),
-  { heading: $('heading'), left: $('edge-left'), right: $('edge-right') },
-  sensor,
-  (id) => sheet.open(id),
+const router = new Router(view, onScreen)
+  .add(/^\/home$/, homeScreen)
+  .add(/^\/map$/, mapScreen)
+  .add(/^\/camera$/, cameraScreen)
+  .add(/^\/ar(?:\/([^/]+))?$/, arScreen)
+  .add(/^\/qa$/, qaScreen)
+  .add(/^\/chat\/([^/]+)$/, chatScreen)
+  .add(/^\/voice\/([^/]+)$/, voiceScreen)
+  .add(/^\/figures$/, figuresScreen)
+  .add(/^\/profile$/, profileScreen)
+  .add(/^\/notifications$/, notificationsScreen);
+
+// iOS: 방향 센서 권한은 사용자 탭(클릭) 안에서 요청해야 하므로 AR 진입 링크/버튼 클릭 시 먼저 요청
+document.addEventListener(
+  'click',
+  (e) => {
+    const t = (e.target as HTMLElement).closest('a[href^="#/ar"], .find button, .ar-badge, [data-ar]');
+    if (t) app.sensor.requestPermission();
+  },
+  true,
 );
 
-if (import.meta.env.DEV) Object.assign(window, { __app: { ar, sensor, tracker, heritageMap } });
+if (import.meta.env.DEV) Object.assign(window, { __app: app });
 
-function notice(id: 'map-notice' | 'ar-notice', msg?: string) {
-  const el = $(id);
-  el.hidden = !msg;
-  el.textContent = msg ?? '';
+/** 시작 화면 — 위치 권한 요청 (사용자 제스처 필요) */
+function showStart(message?: string) {
+  const start = el(`<div class="start">
+    <div class="start-card">
+      <div class="seal big">談</div>
+      <h1>역사담 <b>歷史談</b></h1>
+      <p>${message ?? '유적지 현장에서 역사 속 인물을 만나 대화해 보세요.<br />내 주변 인물을 찾기 위해 위치 권한이 필요합니다.'}</p>
+      <button class="pill solid" data-go="gps">시작하기</button>
+      <button class="link" data-go="demo">데모 위치(수원 화성)로 둘러보기</button>
+    </div>
+  </div>`);
+  document.getElementById('app')!.appendChild(start);
+  start.querySelector('[data-go=gps]')!.addEventListener('click', () => begin(false, start));
+  start.querySelector('[data-go=demo]')!.addEventListener('click', () => begin(true, start));
 }
 
-function renderList() {
-  const list = $('nearby-list');
-  $('nearby-count').textContent = `반경 ${formatDistance(state.radius)} 내 유적지 ${state.nearby.length}곳`;
-  if (!state.nearby.length) {
-    list.innerHTML = '<li class="empty">주변에 등록된 유적지가 없습니다. 반경을 넓혀 보세요.</li>';
-    return;
-  }
-  list.innerHTML = '';
-  for (const it of state.nearby) {
-    const li = document.createElement('li');
-    li.className = categoryClass(it.category);
-    li.innerHTML = `<span class="dot"></span><div><strong></strong><small></small></div><span class="dist"></span>`;
-    li.querySelector('strong')!.textContent = it.name;
-    li.querySelector('small')!.textContent = [it.designation, it.era].filter(Boolean).join(' · ');
-    li.querySelector('.dist')!.textContent = formatDistance(it.distance);
-    li.addEventListener('click', () => sheet.open(it.id));
-    list.appendChild(li);
-  }
-}
-
-function update(pos: Position) {
-  state.nearby = findNearby(state.items, pos, state.radius);
-  $('loc-status').textContent = pos.simulated
-    ? '데모 위치'
-    : `위치 정확도 ±${Math.round(pos.accuracy)}m`;
-  heritageMap.setPosition(pos, state.radius);
-  heritageMap.setItems(state.nearby);
-  // AR 은 반경 설정과 별개로 최대 2km 까지만 표시
-  ar.setData(findNearby(state.items, pos, ARView.MAX_DISTANCE), pos);
-  renderList();
-}
-
-async function switchView(view: 'map' | 'ar') {
-  state.view = view;
-  document.querySelectorAll<HTMLButtonElement>('.tabbar button').forEach((b) =>
-    b.classList.toggle('active', b.dataset.view === view),
-  );
-  $('view-map').hidden = view !== 'map';
-  $('view-ar').hidden = view !== 'ar';
-  document.body.classList.toggle('ar-mode', view === 'ar');
-  if (view === 'ar') {
-    notice('ar-notice');
-    try {
-      await ar.start();
-      setTimeout(() => {
-        if (state.view === 'ar' && !sensor.hasSensor) {
-          notice('ar-notice', '방향 센서를 찾을 수 없습니다. 화면을 좌우로 드래그해서 방향을 바꿔 볼 수 있습니다.');
-        } else if (state.view === 'ar' && !sensor.value.absolute) {
-          notice('ar-notice', '나침반 방향이 정확하지 않을 수 있습니다. 휴대폰을 8자로 움직여 보정해 주세요.');
-        }
-      }, 1500);
-    } catch (e) {
-      notice('ar-notice', (e as Error).message);
-    }
-  } else {
-    ar.stop();
-  }
-}
-
-document.querySelectorAll<HTMLButtonElement>('.tabbar button').forEach((b) =>
-  b.addEventListener('click', () => {
-    const view = b.dataset.view as 'map' | 'ar';
-    // iOS: 방향 센서 권한은 클릭 제스처 안에서 요청해야 함
-    if (view === 'ar') sensor.requestPermission();
-    switchView(view);
-  }),
-);
-
-$<HTMLSelectElement>('radius').addEventListener('change', (e) => {
-  state.radius = Number((e.target as HTMLSelectElement).value);
-  if (tracker.current) {
-    update(tracker.current);
-    heritageMap.fitRadius(tracker.current, state.radius);
-  }
-});
-
-$('drawer-handle').addEventListener('click', () => $('drawer').classList.toggle('open'));
-
-async function boot(useDemo: boolean) {
-  $('start').hidden = true;
-  tracker.onChange(update);
-  const fixed = LocationTracker.fromQuery() ?? (useDemo ? DEMO_POSITION : undefined);
+async function begin(demo: boolean, start?: HTMLElement) {
+  start?.remove();
+  const fixed = LocationTracker.fromQuery() ?? (demo ? DEMO_POSITION : undefined);
   if (fixed) {
-    tracker.useFixed(fixed);
-    return;
+    app.tracker.useFixed(fixed);
+  } else {
+    try {
+      await app.tracker.start();
+    } catch (e) {
+      toast(`${(e as Error).message} 데모 위치로 표시합니다.`, 4000);
+      app.tracker.useFixed(DEMO_POSITION);
+    }
   }
-  try {
-    await tracker.start();
-  } catch (e) {
-    $('loc-status').textContent = (e as Error).message;
-    notice('map-notice', `${(e as Error).message} 데모 위치(수원 화성)로 표시합니다.`);
-    tracker.useFixed(DEMO_POSITION);
-  }
+  router.render();
 }
 
-async function init() {
-  const [index] = await Promise.all([
-    loadIndex(),
-    heritageMap.init().catch((e: Error) => {
-      notice('map-notice', `${e.message} 목록으로 표시합니다.`);
-      $('drawer').classList.add('open', 'no-map');
-    }),
-  ]);
-  state.items = index.items;
-
-  $('start-btn').addEventListener('click', () => boot(false));
-  $('demo-btn').addEventListener('click', () => boot(true));
-  if (LocationTracker.fromQuery()) boot(false);
-}
-
-init().catch((e) => {
-  $('start').hidden = false;
-  $('start').querySelector('p')!.textContent = (e as Error).message;
-});
+app
+  .load()
+  .then(() => {
+    if (LocationTracker.fromQuery()) begin(false);
+    else showStart();
+  })
+  .catch((e: Error) => showStart(`데이터를 불러오지 못했습니다. ${e.message}`));
