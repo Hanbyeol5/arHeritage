@@ -1,0 +1,55 @@
+/** 지도·AR에서 쓰는 경량 항목 (public/data/index.json) */
+export interface HeritageSummary {
+  id: string;
+  name: string;
+  /** 국보, 보물, 사적, 경기도 유형문화유산 등 */
+  designation: string;
+  /** 유적건조물, 유물, 자연유산 등 */
+  category: string;
+  era: string;
+  city: string;
+  lat: number;
+  lng: number;
+  thumb?: string;
+}
+
+export interface HeritageIndex {
+  region: string;
+  generatedAt: string;
+  source: string;
+  count: number;
+  items: HeritageSummary[];
+}
+
+/** LLM 보강 단계에서 채워질 관련 인물 */
+export interface RelatedPerson {
+  name: string;
+  hanja?: string;
+  years?: string;
+  role: string;
+  portrait?: { url: string; credit: string };
+  wikidataId?: string;
+}
+
+/** 상세 카드용 (public/data/detail/<id>.json) */
+export interface HeritageDetail {
+  id: string;
+  name: string;
+  nameHanja: string;
+  designation: string;
+  category: string;
+  subCategory: string;
+  era: string;
+  city: string;
+  address: string;
+  designatedAt: string;
+  lat: number;
+  lng: number;
+  image?: string;
+  images: { url: string; desc: string }[];
+  description: string;
+  sourceUrl: string;
+  /** LLM 보강 단계(빌드 시점)에서 추가 */
+  summary?: string;
+  persons?: RelatedPerson[];
+}

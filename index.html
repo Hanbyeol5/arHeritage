@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#7a2e1d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <title>AR 유적지 탐방</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">AR 유적지 탐방</div>
+      <div class="loc" id="loc-status">위치 확인 전</div>
+      <label class="radius">
+        반경
+        <select id="radius">
+          <option value="1000">1km</option>
+          <option value="3000" selected>3km</option>
+          <option value="5000">5km</option>
+          <option value="10000">10km</option>
+        </select>
+      </label>
+    </header>
+
+    <main>
+      <section id="view-map" class="view">
+        <div id="map"></div>
+        <div id="map-notice" class="notice" hidden></div>
+        <div class="drawer" id="drawer">
+          <button class="drawer-handle" id="drawer-handle" aria-label="목록 펼치기">
+            <span id="nearby-count">주변 유적지</span>
+          </button>
+          <ul class="nearby-list" id="nearby-list"></ul>
+        </div>
+      </section>
+
+      <section id="view-ar" class="view" hidden>
+        <video id="camera" playsinline muted autoplay></video>
+        <div id="ar-layer" class="ar-layer"></div>
+        <div class="ar-hud">
+          <span class="edge left" id="edge-left"></span>
+          <span class="heading" id="heading">--°</span>
+          <span class="edge right" id="edge-right"></span>
+        </div>
+        <div id="ar-notice" class="notice" hidden></div>
+      </section>
+    </main>
+
+    <nav class="tabbar">
+      <button data-view="map" class="active">지도</button>
+      <button data-view="ar">AR 카메라</button>
+    </nav>
+
+    <div id="sheet" class="sheet" hidden>
+      <div class="sheet-body" id="sheet-body"></div>
+    </div>
+
+    <div id="start" class="start">
+      <div class="start-card">
+        <h1>AR 유적지 탐방</h1>
+        <p>내 위치 주변의 국가유산을 지도와 카메라로 찾아봅니다.<br />위치 권한을 허용해 주세요.</p>
+        <button id="start-btn" class="primary">시작하기</button>
+        <button id="demo-btn" class="link">데모 위치(수원 화성)로 보기</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
