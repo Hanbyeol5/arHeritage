@@ -142,11 +142,33 @@ ${here ? `- 방문객은 지금 '${here.name}' 근처에 있다.` : ''}
 지연에 민감한 음성 대화이므로 곧바로 답을 시작하라.`;
 }
 
+/** 역사 인물이 없는 유적지의 해설사 (figureId = "guide:<유적지 id>") */
+async function guidePrompt(siteId: string, env: Env): Promise<string> {
+  if (!/^[\w-]{1,40}$/.test(siteId)) throw new HttpError(400, '유적지 id 가 올바르지 않습니다.');
+  const d = await fetchJson<Detail>(`${env.SITE_BASE}data/detail/${siteId}.json`).catch(() => undefined);
+  if (!d) throw new HttpError(404, '유적지를 찾을 수 없습니다.');
+  return `너는 AR 앱 '역사담'에서 '${d.name}'을(를) 안내하는 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서, 유적 앞에 선 방문객과 얼굴을 마주 보고 이야기한다.
+
+[안내할 유적 — 국가유산청 설명]
+${d.name} (${d.designation}${d.era ? `, ${d.era}` : ''}) / ${d.address}
+${d.description.slice(0, 3000)}
+
+[대화 규칙]
+- 친절하고 차분한 해설사의 존댓말(예: "~입니다", "~이지요")로 말한다.
+- 답은 음성으로 읽히므로 2~4문장, 180자 안팎으로 짧게 말한다. 목록·마크다운·이모지·괄호 설명·특수 기호는 쓰지 않는다.
+- 사실은 위 설명과 널리 알려진 역사에 근거한다. 모르거나 기록이 불확실한 것은 지어내지 말고 솔직히 말한다.
+- 유적의 볼거리, 얽힌 인물과 이야기, 관람 포인트를 방문객 눈높이에서 들려주고, 필요하면 되물어 대화를 이어 간다.
+- 유적·역사와 무관한 요청은 정중히 사양하고 이야기를 유적으로 돌린다.
+지연에 민감한 음성 대화이므로 곧바로 답을 시작하라.`;
+}
+
 async function chat(req: Request, env: Env, client: Anthropic) {
   const body = ChatBody.parse(await req.json());
   const { figures } = await fetchJson<{ figures: Figure[] }>(`${env.SITE_BASE}data/figures.json`);
+  const guideSite = body.figureId.startsWith('guide:') ? body.figureId.slice(6) : undefined;
   const f = figures.find((x) => x.id === body.figureId);
-  if (!f) throw new HttpError(404, '인물을 찾을 수 없습니다.');
+  if (!f && !guideSite) throw new HttpError(404, '인물을 찾을 수 없습니다.');
+  const system = guideSite ? await guidePrompt(guideSite, env) : await systemPrompt(f!, env, body.siteId);
 
   // 안내 문구는 빼고, 인물의 첫 인사는 system 에 넣어 첫 메시지가 user 가 되게 한다
   const lines = body.lines.filter((l) => !l.system && l.text.trim()).slice(-MAX_TURNS);
@@ -163,7 +185,7 @@ async function chat(req: Request, env: Env, client: Anthropic) {
     ...FALLBACK,
     thinking: { type: 'adaptive' },
     output_config: { effort: 'low' },
-    system: [{ type: 'text', text: await systemPrompt(f, env, body.siteId), cache_control: { type: 'ephemeral' } }],
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     messages,
   });
 
@@ -258,8 +280,9 @@ async function tts(req: Request, env: Env): Promise<Response> {
   const body = TtsBody.parse(await req.json());
   const { figures } = await fetchJson<{ figures: Figure[] }>(`${env.SITE_BASE}data/figures.json`);
   const f = figures.find((x) => x.id === body.figureId);
-  if (!f) throw new HttpError(404, '인물을 찾을 수 없습니다.');
-  const voice = f.voice ?? DEFAULT_VOICE[f.style];
+  const isGuide = body.figureId.startsWith('guide:');
+  if (!f && !isGuide) throw new HttpError(404, '인물을 찾을 수 없습니다.');
+  const voice = f ? (f.voice ?? DEFAULT_VOICE[f.style]) : 'ko-KR-InJoonNeural';
   const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ko-KR"><voice name="${voice}"><prosody rate="-6%">${xml(body.text)}</prosody></voice></speak>`;
   const res = await fetch(`https://${env.AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
     method: 'POST',

@@ -1,12 +1,15 @@
 import { app } from '../app.ts';
 import { reply, session, type Line } from '../conversation.ts';
 import { openFigureSheet } from '../figureSheet.ts';
-import { angleDiff } from '../geo.ts';
+import { openHeritage } from '../heritageSheet.ts';
+import { angleDiff, bearing } from '../geo.ts';
+import { guideFor } from '../guide.ts';
 import { go, type Screen } from '../router.ts';
 import { canListen, canSpeak, listen, speak, stopSpeaking, unlockAudio } from '../speech.ts';
 import type { Figure } from '../types.ts';
 import { asset, esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
+import { immersive } from '../ui/immersive.ts';
 
 type State = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -25,9 +28,12 @@ const V_FOV = 70;
 
 /** 배경을 걷어낸 인물 (초상 컷아웃이 아직 없으면 한자 이름 인장) */
 function cutout(f: Figure): string {
-  return f.cutout
-    ? `<img src="${esc(asset(f.cutout))}" alt="${esc(f.name)}" draggable="false" />`
-    : `<div class="tk-seal"><span>${esc(f.hanja)}</span><small>${esc(f.name)}</small></div>`;
+  if (f.cutout) return `<img src="${esc(asset(f.cutout))}" alt="${esc(f.name)}" draggable="false" />`;
+  if (f.fullBody) {
+    const id = f.fullBody === 'king' ? 'bodyKing' : 'bodyGuide';
+    return `<svg class="tk-body" viewBox="0 0 200 390" aria-label="${esc(f.name)}"><use href="#${id}"/></svg>`;
+  }
+  return `<div class="tk-seal"><span>${esc(f.hanja)}</span><small>${esc(f.name)}</small></div>`;
 }
 
 /**
@@ -37,15 +43,17 @@ function cutout(f: Figure): string {
 export const talkScreen: Screen = {
   tab: 'qa',
   fullscreen: true,
-  mount(root, [id]) {
-    const f = app.figureById.get(id);
+  mount(root, [id], query) {
+    // 역사 인물이 없는 유적지는 해설사가 안내한다 (#/talk/guide?site=...)
+    const f = id === 'guide' ? guideFor(query.get('site')) : app.figureById.get(id);
     if (!f) return go('#/qa');
     const lines = session(f);
+    const site = app.nearestSiteOf(f).site;
 
     root.innerHTML = `<div class="scr talk" data-state="idle">
       <video class="tk-cam" playsinline muted autoplay></video>
       <div class="tk-world">
-        <div class="tk-figure">${cutout(f)}</div>
+        <div class="tk-figure${f.cutout ? '' : f.fullBody ? ' full' : ''}"><div class="tk-face">${cutout(f)}</div><div class="tk-shadow"></div></div>
       </div>
       <div class="tk-find" hidden></div>
       <div class="tk-top">
@@ -113,6 +121,11 @@ export const talkScreen: Screen = {
       const x = delta * (w / H_FOV);
       const y = pitch * (h / V_FOV);
       figureEl.style.transform = `translate(calc(-50% + ${x.toFixed(1)}px), ${y.toFixed(1)}px)`;
+      // 전신 인물은 유적지가 있는 쪽을 바라보고 선다 (그림은 왼쪽을 보고 있음)
+      if (f.fullBody && app.pos) {
+        const siteDelta = angleDiff(bearing(app.pos, site), heading);
+        figureEl.classList.toggle('face-right', siteDelta > delta);
+      }
       // 시야 밖이면 방향 안내
       const out = Math.abs(delta) > H_FOV / 2 + 12;
       const find = $('.tk-find');
@@ -295,12 +308,15 @@ export const talkScreen: Screen = {
       sensor.requestPermission();
       callToFront();
     });
-    $('.tk-who').addEventListener('click', () => openFigureSheet(f.id));
+    // 해설사는 안내하는 유적지 정보를, 역사 인물은 인물 정보를 연다
+    $('.tk-who').addEventListener('click', () => (f.role === 'guide' ? openHeritage(site.id) : openFigureSheet(f.id)));
 
     setState('idle');
     if (fresh) say(lines[0]).then(() => alive && setState('idle'));
+    const offImmersive = immersive(scr);
 
     return () => {
+      offImmersive();
       alive = false;
       conversing = false;
       cancelAnimationFrame(raf);

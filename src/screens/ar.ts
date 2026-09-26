@@ -6,6 +6,7 @@ import { openHeritage } from '../heritageSheet.ts';
 import type { Screen } from '../router.ts';
 import { esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
+import { immersive } from '../ui/immersive.ts';
 import { medal } from '../ui/medal.ts';
 import { onPosition } from './home.ts';
 
@@ -83,7 +84,9 @@ export const arScreen: Screen = {
     if (import.meta.env.DEV) Object.assign(window, { __ar: engine });
     window.addEventListener('keydown', engine.handleKey);
     const off = onPosition(update);
+    const offImmersive = immersive(root.querySelector<HTMLElement>('.scr')!);
     return () => {
+      offImmersive();
       off();
       engine.stop();
       window.removeEventListener('keydown', engine.handleKey);

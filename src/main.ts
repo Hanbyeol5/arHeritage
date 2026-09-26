@@ -15,6 +15,7 @@ import { profileScreen } from './screens/profile.ts';
 import { talkScreen } from './screens/talk.ts';
 import { unlockAudio } from './speech.ts';
 import { el, toast } from './ui/dom.ts';
+import { enableFullscreenOnTouch } from './ui/immersive.ts';
 import { icons } from './ui/icons.ts';
 
 registerSW({ immediate: true });
@@ -65,6 +66,9 @@ document.addEventListener(
 
 // 인물 목소리(서버 음성)를 코드로 재생할 수 있도록 첫 탭에서 오디오를 풀어 둔다 (iOS)
 document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
+
+// 전체 화면으로 (주소창 없이)
+enableFullscreenOnTouch(() => toast('Safari 공유 버튼 → 「홈 화면에 추가」로 열면 전체 화면으로 볼 수 있어요', 6000));
 
 if (import.meta.env.DEV) Object.assign(window, { __app: app });
 

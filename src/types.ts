@@ -40,6 +40,12 @@ export interface Figure {
   /** 배경을 제거한 AR 용 초상 (없으면 목업 일러스트 컷아웃) */
   cutout?: string;
   portraitCredit?: string;
+  /** 서버 음성(Azure) 이름 */
+  voice?: string;
+  /** 초상 정보가 없을 때 AR 에 세울 전신 모습 */
+  fullBody?: 'guide' | 'king' | 'scholar';
+  /** 역사 인물이 아닌 유적지 해설사 */
+  role?: 'guide';
   /** 진본 초상이 없어 새로 그린 상상 초상 */
   imagined?: boolean;
   sites: { id: string; note: string }[];

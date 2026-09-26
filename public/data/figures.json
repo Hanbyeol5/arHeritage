@@ -132,7 +132,8 @@
         }
       ],
       "voice": "ko-KR-HyunsuNeural",
-      "gender": "male"
+      "gender": "male",
+      "fullBody": "king"
     },
     {
       "id": "yi-i",
@@ -202,7 +203,8 @@
         }
       ],
       "voice": "ko-KR-GookMinNeural",
-      "gender": "male"
+      "gender": "male",
+      "fullBody": "king"
     },
     {
       "id": "jeong-mongju",
@@ -315,7 +317,8 @@
         }
       ],
       "voice": "ko-KR-GookMinNeural",
-      "gender": "male"
+      "gender": "male",
+      "fullBody": "king"
     },
     {
       "id": "taejo",

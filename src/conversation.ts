@@ -19,7 +19,9 @@ export function session(f: Figure): Line[] {
   if (!s) {
     const site = app.nearestSiteOf(f).site.name;
     const greet =
-      f.style === 'lady'
+      f.role === 'guide'
+        ? `어서 오세요. 저는 ${site}을(를) 안내하는 해설사입니다. 궁금한 것을 편하게 물어보세요.`
+        : f.style === 'lady'
         ? `어서 오세요. ${site}에서 뵙게 되어 반갑습니다.`
         : f.style === 'king'
           ? `그대가 ${site}을(를) 찾아왔구나. 무엇이 궁금한고?`

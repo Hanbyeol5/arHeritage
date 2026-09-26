@@ -120,6 +120,46 @@
       <circle cx="100" cy="13" r="6.5" fill="#b23a32"/>
       <path d="M100 8 q10 -6 15 -17 q-3 13 -15 17z" fill="#b23a32"/>
     </g>
+
+    <!-- ====== 전신 먹 실루엣 (초상 정보가 없는 인물·해설사) — 왼쪽을 바라보고 선 모습 ====== -->
+    <linearGradient id="inkBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3029"/><stop offset="0.55" stop-color="#241d18"/><stop offset="1" stop-color="#15110e"/>
+    </linearGradient>
+    <g id="bodyGuide">
+      <!-- 갓 -->
+      <path d="M86 54 C86 34 90 26 100 26 C110 26 114 34 114 54 Z" fill="url(#inkBody)"/>
+      <ellipse cx="99" cy="56" rx="44" ry="6.5" fill="url(#inkBody)"/>
+      <!-- 머리·목 -->
+      <ellipse cx="97" cy="74" rx="13" ry="16" fill="url(#inkBody)"/>
+      <path d="M92 86 L104 86 L106 100 L90 100 Z" fill="url(#inkBody)"/>
+      <path d="M93 60 L90 96 M105 60 L104 92" stroke="#1b1612" stroke-width="1" fill="none"/>
+      <!-- 두루마기 -->
+      <path d="M74 104 C82 96 116 95 126 104 L132 170 C136 240 144 318 150 368 L52 368 C58 318 64 240 68 170 Z" fill="url(#inkBody)"/>
+      <path d="M100 100 L112 368" stroke="#4a3f36" stroke-width="1.2" fill="none" opacity="0.6"/>
+      <!-- 앞으로 뻗은 팔 (유적지를 가리킴) -->
+      <path d="M80 108 C66 120 48 140 30 166 C27 171 30 178 36 177 C52 164 70 150 88 140 Z" fill="url(#inkBody)"/>
+      <path d="M31 166 C26 168 22 172 24 176 C27 178 31 176 34 174 Z" fill="#3a3029"/>
+      <!-- 신 -->
+      <path d="M72 368 C66 374 70 378 84 377 L92 370 Z M106 370 L118 378 C130 378 132 373 126 368 Z" fill="#120e0b"/>
+    </g>
+    <g id="bodyKing">
+      <!-- 익선관 -->
+      <path d="M84 56 C84 36 90 28 100 28 C110 28 116 36 116 56 Z" fill="url(#inkBody)"/>
+      <path d="M108 34 C118 26 124 30 120 40 Z M92 34 C84 27 79 31 82 40 Z" fill="url(#inkBody)"/>
+      <!-- 머리·목 -->
+      <ellipse cx="98" cy="72" rx="13.5" ry="16" fill="url(#inkBody)"/>
+      <path d="M92 86 L105 86 L107 100 L90 100 Z" fill="url(#inkBody)"/>
+      <!-- 곤룡포 -->
+      <path d="M66 106 C80 94 120 94 134 106 L140 176 C144 246 150 318 156 368 L44 368 C50 318 56 246 60 176 Z" fill="url(#inkBody)"/>
+      <!-- 가슴 보(흉배)·옥대 -->
+      <circle cx="100" cy="140" r="15" fill="none" stroke="#bb9148" stroke-width="2" opacity="0.85"/>
+      <!-- 소매에 모은 두 손 -->
+      <path d="M64 150 C58 176 60 204 80 214 C92 218 110 218 122 214 C140 204 142 176 136 150 C124 170 76 170 64 150 Z" fill="#2c241e"/>
+      <path d="M60 222 C88 232 114 232 142 222" stroke="#bb9148" stroke-width="3.5" fill="none" opacity="0.8"/>
+      <!-- 신 -->
+      <path d="M70 368 C64 374 68 378 84 377 L92 370 Z M108 370 L118 378 C132 378 134 373 128 368 Z" fill="#120e0b"/>
+    </g>
+
     <!-- mystery placeholder (?) -->
     <g id="figQ">
       <rect width="200" height="200" fill="url(#paperg)"/>

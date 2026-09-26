@@ -85,6 +85,7 @@ function render(d: HeritageDetail): string {
     <div class="desc ${long ? 'collapsed' : ''}">${paras}</div>
     ${long ? '<button class="link more">더보기</button>' : ''}
     <div class="addr">${icons.place} ${esc(d.address)}</div>
+    <button class="pill solid talk-guide">${icons.talk} 해설사와 이야기하기</button>
     <div class="sheet-actions">
       <button class="pill outline show-map">${icons.map} 지도에서 보기</button>
       <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">국가유산포털</a>
@@ -96,6 +97,10 @@ function bind(sheet: HTMLElement, d: HeritageDetail) {
   sheet.querySelector('.more')?.addEventListener('click', (e) => {
     sheet.querySelector('.desc')!.classList.remove('collapsed');
     (e.currentTarget as HTMLElement).remove();
+  });
+  sheet.querySelector('.talk-guide')!.addEventListener('click', () => {
+    closeOverlays();
+    go(`#/talk/guide?site=${encodeURIComponent(d.id)}`);
   });
   sheet.querySelector('.show-map')!.addEventListener('click', () => {
     closeOverlays();

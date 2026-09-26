@@ -684,3 +684,22 @@ body.fullscreen .nav { display: none; }
 }
 .tk-seal span { font-family: var(--display); font-weight: 800; color: #fff; font-size: 64px; writing-mode: vertical-rl; letter-spacing: 0.1em; }
 .tk-seal small { color: #f6e3c6; font-family: var(--serif); font-size: 14px; }
+/* 전신으로 선 인물 (초상 정보가 없는 인물·해설사) — 바닥에 서서 유적지 쪽을 바라봄 */
+.tk-face { width: 100%; height: 100%; transition: transform 0.45s ease; }
+.tk-figure.face-right .tk-face { transform: scaleX(-1); }
+.tk-shadow { display: none; }
+.tk-figure.full {
+  width: 44%; max-width: 220px; aspect-ratio: 200 / 390; bottom: 15%;
+  -webkit-mask-image: none; mask-image: none;
+  filter: drop-shadow(0 0 1.5px rgba(212, 172, 99, 0.9)) drop-shadow(0 12px 18px rgba(0, 0, 0, 0.45));
+}
+.tk-figure.full .tk-body { width: 100%; height: 100%; display: block; transform-origin: 50% 100%; animation: breathe 7s ease-in-out infinite; }
+.tk-figure.full .tk-shadow {
+  display: block; position: absolute; left: 50%; bottom: -2%; width: 90%; height: 7%; transform: translateX(-50%);
+  border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, 0.55), transparent); z-index: -1;
+}
+.talk-guide { width: 100%; margin-top: 16px; height: 44px; font-size: 14.5px; }
+/* 몰입 모드: 조작 버튼은 숨기고 터치하면 다시 표시 */
+.tk-top, .tk-controls, .tk-type, .tk-voice, .ar-top, .ar-hud { transition: opacity 0.35s ease; }
+.ui-hidden .tk-top, .ui-hidden .tk-controls, .ui-hidden .tk-type,
+.ui-hidden .ar-top, .ui-hidden .ar-hud { opacity: 0; pointer-events: none; }
