@@ -3,7 +3,7 @@ import { AREngine, toCompass, type TargetInfo } from '../arEngine.ts';
 import { findNearby } from '../data.ts';
 import { formatDistance } from '../geo.ts';
 import type { Screen } from '../router.ts';
-import { openSiteActions } from '../siteActions.ts';
+import { openSiteActions, openSiteGroup } from '../siteActions.ts';
 import { esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { immersive } from '../ui/immersive.ts';
@@ -69,6 +69,8 @@ export const arScreen: Screen = {
     const engine = new AREngine($('video'), $('.ar-layer'), app.sensor, openSiteActions);
     engine.target = target;
     engine.radius = radius;
+    engine.onSelectGroup = openSiteGroup;
+    engine.important = new Set(app.figures.flatMap((x) => x.sites.map((s) => s.id)));
     engine.onFrame = (heading, t, off) => {
       $('.heading').textContent = `${Math.round(heading)}° ${toCompass(heading)}`;
       $('.edge.left').textContent = off?.left ? `◀ ${off.left}` : '';

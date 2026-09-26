@@ -29,6 +29,12 @@ export class AREngine {
   private items: Nearby[] = [];
   private position?: Position;
   target?: HeritageSummary;
+  /** 역사 인물과 연결된 유적 — 겹칠 때 대표로 우선 */
+  important = new Set<string>();
+  /** 겹쳐서 숨긴 유적: 대표 id → 숨긴 id 목록 */
+  private groups = new Map<string, string[]>();
+  /** 겹친 유적 묶음을 눌렀을 때 (대표가 맨 앞) */
+  onSelectGroup?: (ids: string[]) => void;
   onFrame?: (heading: number, target?: TargetInfo, off?: { left: number; right: number }) => void;
 
   constructor(
@@ -111,25 +117,47 @@ export class AREngine {
         if (!onScreen) c.delta < 0 ? left++ : right++;
         return onScreen;
       })
-      .sort((a, b) => a.d - b.d)
-      .slice(0, AREngine.MAX_LABELS);
+      .map((c) => {
+        const isTarget = c.it.id === this.target?.id;
+        // 멀수록 위쪽·작게 배치, 타깃은 멀리 있어도 눈높이 근처
+        const t = isTarget ? 0.2 : Math.min(1, Math.log1p(c.d / 100) / Math.log1p(this.radius / 100));
+        const scale = isTarget ? 1.15 : 1.05 - t * 0.4;
+        const x = w / 2 + c.delta * pxPerDegX;
+        const y = horizonY - 40 - t * h * 0.28;
+        const bw = Math.min(176, 44 + c.it.name.length * 13) * scale;
+        const bh = 58 * scale;
+        return { ...c, isTarget, scale, x, y, box: [x - bw / 2, y - bh, x + bw / 2, y] as const, score: this.score(c.it, c.d, isTarget) };
+      })
+      // 중요한 유적부터 자리를 잡고, 겹치는 라벨은 대표 라벨의 '+N' 으로 묶는다
+      .sort((a, b) => b.score - a.score);
 
-    inView.forEach((c, rank) => {
-      const isTarget = c.it.id === this.target?.id;
+    this.groups.clear();
+    const placed: typeof inView = [];
+    for (const c of inView) {
+      const hit = placed.find((p) => c.box[0] < p.box[2] + 4 && c.box[2] > p.box[0] - 4 && c.box[1] < p.box[3] + 4 && c.box[3] > p.box[1] - 4);
+      if (hit || placed.length >= AREngine.MAX_LABELS) {
+        const owner = hit ?? placed.reduce((m, p) => (Math.abs(p.x - c.x) < Math.abs(m.x - c.x) ? p : m));
+        const g = this.groups.get(owner.it.id) ?? [];
+        g.push(c.it.id);
+        this.groups.set(owner.it.id, g);
+        continue;
+      }
+      placed.push(c);
+    }
+
+    for (const c of placed) {
       const el = this.label(c.it);
       visible.add(c.it.id);
-      el.classList.toggle('target', isTarget);
+      el.classList.toggle('target', c.isTarget);
       el.querySelector('.ar-dist')!.textContent = formatDistance(c.d);
-      // 멀수록 위쪽·작게 배치해 겹침을 줄인다
-      // 타깃은 멀리 있어도 눈높이 근처에 둔다
-      const t = isTarget ? 0.2 : Math.min(1, Math.log1p(c.d / 100) / Math.log1p(this.radius / 100));
-      const x = w / 2 + c.delta * pxPerDegX;
-      const y = horizonY - 40 - t * h * 0.28 - (rank % 3) * 14;
-      const scale = isTarget ? 1.15 : 1.05 - t * 0.4;
-      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%) scale(${scale})`;
-      el.style.zIndex = isTarget ? '2000' : String(1000 - Math.round(c.d / 10));
+      const more = this.groups.get(c.it.id)?.length ?? 0;
+      const badge = el.querySelector<HTMLElement>('.ar-more')!;
+      badge.hidden = !more;
+      badge.textContent = `+${more}`;
+      el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, -100%) scale(${c.scale})`;
+      el.style.zIndex = c.isTarget ? '2000' : String(1000 + Math.round(c.score));
       el.hidden = false;
-    });
+    }
 
     this.labels.forEach((el, id) => {
       if (!visible.has(id)) el.hidden = true;
@@ -141,15 +169,45 @@ export class AREngine {
     this.onFrame?.(heading, target, { left, right });
   }
 
+  /** 대표로 보일 우선순위: 찾아갈 장소 > 지정 등급 > 인물 연결 > 가까움 */
+  private score(it: HeritageSummary, d: number, isTarget: boolean): number {
+    if (isTarget) return 1e6;
+    const g = it.designation;
+    const grade = /국보/.test(g)
+      ? 100
+      : /보물/.test(g)
+        ? 90
+        : /사적/.test(g)
+          ? 85
+          : /명승|천연기념물/.test(g)
+            ? 75
+            : /국가(민속|무형)/.test(g)
+              ? 70
+              : it.local
+                ? 40
+                : it.tour
+                  ? 45
+                  : /등록|문화유산자료/.test(g)
+                    ? 50
+                    : 60;
+    // 유물·기록유산·무형유산은 찾아가 볼 '장소'가 아니므로 대표에서 뒤로
+    const place = /유물|기록유산|무형/.test(it.category) ? -75 : 0;
+    return grade + place + (this.important.has(it.id) ? 25 : 0) - Math.log10(Math.max(d, 10)) * 6;
+  }
+
   private label(it: HeritageSummary): HTMLElement {
     let el = this.labels.get(it.id);
     if (!el) {
       el = document.createElement('button');
       el.className = `ar-label${it.local ? ' local' : it.tour ? ' tour' : ''}`;
-      el.innerHTML = `<strong></strong><small></small><span class="ar-dist"></span>`;
+      el.innerHTML = `<strong></strong><small></small><span class="ar-dist"></span><span class="ar-more" hidden></span>`;
       el.querySelector('strong')!.textContent = it.name;
       el.querySelector('small')!.textContent = it.designation;
-      el.addEventListener('click', () => this.onSelect(it.id));
+      el.addEventListener('click', () => {
+        const hidden = this.groups.get(it.id);
+        if (hidden?.length && this.onSelectGroup) this.onSelectGroup([it.id, ...hidden]);
+        else this.onSelect(it.id);
+      });
       this.layer.appendChild(el);
       this.labels.set(it.id, el);
     }

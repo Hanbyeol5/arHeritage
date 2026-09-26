@@ -87,3 +87,28 @@ export function openSiteActions(id: string) {
     }),
   );
 }
+
+/** AR 에서 겹쳐 있던 유적들 — 대표를 맨 앞에, 나머지는 가까운 순 */
+export function openSiteGroup(ids: string[]) {
+  const [first, ...rest] = ids.map((id) => app.siteById.get(id)).filter((x): x is NonNullable<typeof x> => !!x);
+  if (!first) return;
+  const d = (x: { lat: number; lng: number }) => (app.pos ? distance(app.pos, x) : 0);
+  const list = [first, ...rest.sort((a, b) => d(a) - d(b))];
+  const sheet = openBottomSheet(
+    `<div class="act-head"><h2>이 방향의 유적 ${list.length}곳</h2><div class="meta">겹쳐 보이던 유적을 모았어요</div></div>
+    <ul class="site-rows">${list
+      .map(
+        (s, i) => `<li><button class="site-row" data-site="${esc(s.id)}">
+          <div class="ri"><b>${i === 0 ? '★ ' : ''}${esc(s.name)}</b><small>${esc(s.local ? '향토유산' : s.tour ? '역사관광지' : s.designation)} · ${esc(s.city)}</small></div>
+          <span class="rdist">${app.pos ? esc(formatDistance(d(s))) : ''}</span></button></li>`,
+      )
+      .join('')}</ul>`,
+    'actions',
+  );
+  sheet.querySelectorAll<HTMLElement>('[data-site]').forEach((b) =>
+    b.addEventListener('click', () => {
+      sheet.remove();
+      openSiteActions(b.dataset.site!);
+    }),
+  );
+}

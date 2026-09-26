@@ -738,3 +738,9 @@ body.fullscreen .nav { display: none; }
 .act-fig b { font-family: var(--serif); font-size: 15px; }
 .act-talk .pill { width: 100%; }
 .sheet-body .lead { margin: 14px 0 0; font-family: var(--serif); font-size: 15px; line-height: 1.6; color: var(--ink); padding: 10px 12px; border-left: 3px solid var(--gold); background: rgba(187, 145, 72, 0.08); border-radius: 0 10px 10px 0; }
+/* 겹쳐서 숨긴 유적 개수 */
+.ar-more {
+  position: absolute; top: -9px; right: -9px; min-width: 24px; height: 22px; padding: 0 6px; border-radius: 11px;
+  background: var(--ink); color: var(--gold-2); font-size: 11.5px; font-weight: 700; display: grid; place-items: center;
+  box-shadow: 0 0 0 2px var(--paper-card);
+}
