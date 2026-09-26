@@ -2,6 +2,8 @@ name = "yeoksadam-api"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
+# https://yeoksadam-api.<계정 하위도메인>.workers.dev 주소로 공개
+workers_dev = true
 
 [vars]
 SITE_BASE = "https://samcho93.github.io/arHeritage/"
