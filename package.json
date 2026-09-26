@@ -9,11 +9,9 @@
     "preview": "vite preview --host",
     "data:fetch": "tsx scripts/fetch-heritage.ts",
     "data:hyangto": "tsx scripts/fetch-hyangto.ts",
-    "data:tour": "tsx scripts/import-tour.ts",
-    "data:enrich": "tsx scripts/enrich-llm.ts"
+    "data:tour": "tsx scripts/import-tour.ts"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
     "@types/node": "^26.6.3",
     "fast-xml-parser": "^5.11.1",
     "tsx": "^4.23.15",
