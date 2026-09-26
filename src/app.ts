@@ -77,14 +77,23 @@ class App {
     // 데모 위치로는 도감이 채워지지 않도록 (개발 모드에서는 테스트를 위해 허용)
     if (pos.simulated && !import.meta.env.DEV) return;
     for (const s of this.nearbySites(SITE_ARRIVAL_M, pos)) {
-      if (store.discover('sites', s.id)) {
-        store.notify({ title: `${s.name}에 도착했습니다`, body: `${s.designation} · ${s.city}`, siteId: s.id });
-        toast(`📍 ${s.name}에 도착했습니다`);
-      }
+      if (store.isDiscovered('site', s.id)) continue;
+      store.record({
+        type: 'site',
+        refId: s.id,
+        name: s.name,
+        subtitle: [s.designation, s.era, s.city].filter(Boolean).join(' · '),
+        description: '',
+        imageUrl: s.thumb,
+      });
+      store.notify({ title: `${s.name}에 도착했습니다`, body: `${s.designation} · ${s.city}`, siteId: s.id });
+      toast(`📍 ${s.name}에 도착했습니다`);
     }
     for (const nf of this.nearbyFigures(pos)) {
       if (nf.distance > FIGURE_MEET_M) break;
-      if (store.discover('figures', nf.figure.id)) {
+      const f = nf.figure;
+      if (!store.isDiscovered('figure', f.id)) {
+        store.record({ type: 'figure', refId: f.id, name: f.name, subtitle: `${f.title} · ${f.years}`, description: f.bio });
         store.notify({
           title: `${nf.figure.name}을(를) 만날 수 있습니다`,
           body: `${nf.site.name} · ${nf.note}`,

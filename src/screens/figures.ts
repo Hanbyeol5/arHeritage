@@ -30,7 +30,7 @@ export const figuresScreen: Screen = {
     const listEl = root.querySelector<HTMLElement>('.list')!;
 
     const row = (n: NearbyFigure) => {
-      const found = store.isDiscovered('figures', n.figure.id);
+      const found = store.isDiscovered('figure', n.figure.id);
       return `<button class="row-item" data-id="${esc(n.figure.id)}">
         ${found ? medal(n.figure, { size: 42 }) : lockedMedal(42)}
         <div class="ri"><b>${esc(n.figure.name)}</b><small>${esc(n.figure.title)} · ${esc(n.site.name)}</small></div>
@@ -75,6 +75,6 @@ export const figuresScreen: Screen = {
     });
     input.addEventListener('input', render);
     render();
-    return store.onChange(render) as () => void;
+    return store.onChange(render);
   },
 };

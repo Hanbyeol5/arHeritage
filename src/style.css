@@ -510,3 +510,62 @@ body.fullscreen .nav { display: none; }
 .start-card p { color: var(--ink-soft); line-height: 1.7; margin: 0 0 28px; font-size: 13.5px; font-weight: 300; }
 .start-card .pill { width: 100%; }
 .start-card .link { margin-top: 14px; font-size: 13px; }
+
+/* ============ 3 카메라 인식 흐름 (historydam CameraScreen) ============ */
+.viewfinder { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 166px; height: 210px; z-index: 3; }
+.viewfinder .reticle { position: absolute; inset: 0; left: 0; top: 0; transform: none; width: 100%; height: 100%; }
+.recog {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  font-size: 13px; text-align: center;
+}
+.spinner {
+  display: inline-block; width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(212, 172, 99, 0.3);
+  border-top-color: var(--gold-2); animation: spin 0.9s linear infinite;
+}
+.spinner.dark { width: 16px; height: 16px; border-width: 2px; border-color: rgba(178, 58, 50, 0.2); border-top-color: var(--cinnabar); vertical-align: -3px; margin-right: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.cam-bottom {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; padding: 16px 16px calc(18px + var(--safe-b));
+  display: flex; flex-direction: column; align-items: center; gap: 10px; max-height: 78%;
+}
+.cam-bottom .shutter { position: static; transform: none; margin-top: 8px; }
+.cam-hint, .cam-tag {
+  padding: 8px 14px; border-radius: 20px; background: rgba(0, 0, 0, 0.45); font-size: 13px; text-align: center; line-height: 1.5;
+}
+.cam-tag { background: rgba(0, 0, 0, 0.6); font-size: 12px; padding: 7px 14px; }
+.cam-error { padding: 8px 14px; border-radius: 14px; background: rgba(178, 58, 50, 0.85); font-size: 12px; text-align: center; }
+.cand-chips { display: flex; gap: 8px; overflow-x: auto; width: 100%; padding-bottom: 2px; flex: none; }
+.cand {
+  flex: none; height: 32px; padding: 0 13px; border-radius: 20px; border: 0; white-space: nowrap;
+  background: rgba(255, 255, 255, 0.16); color: #fff; font-size: 12px; font-weight: 500;
+}
+.cand.on { background: var(--cinnabar); }
+.result-card {
+  width: 100%; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 18px;
+  background: rgba(251, 245, 234, 0.98); color: var(--ink); box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.5); animation: rise 0.25s ease;
+}
+.rc-img { width: 100%; height: 130px; object-fit: cover; border-radius: 12px; background: var(--paper-2); flex: none; }
+.rc-head { display: flex; align-items: center; gap: 8px; }
+.rc-head .med { box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 3px var(--gold); }
+.rc-title { flex: 1; min-width: 0; }
+.rc-title b { font-family: var(--serif); font-size: 15px; display: block; }
+.rc-title small { font-size: 11px; color: var(--ink-soft); }
+.rc-head .spk { width: 34px; height: 34px; border-radius: 50%; background: var(--cinnabar); display: grid; place-items: center; border: 0; padding: 0; flex: none; }
+.rc-desc { font-size: 13px; line-height: 1.46; max-height: 150px; overflow-y: auto; white-space: pre-line; }
+.rc-desc .muted { color: var(--ink-soft); font-size: 12px; }
+.retake {
+  height: 40px; border-radius: 12px; border: 1.5px solid var(--cinnabar); background: none; color: var(--cinnabar);
+  font-weight: 600; font-size: 13px; margin-top: 4px;
+}
+
+/* ============ 역사의 전당 상세 (가운데 대화상자) ============ */
+.sheet.center { align-items: center; justify-content: center; padding: 20px; }
+.sheet.center .sheet-body { border-radius: 20px; max-height: 86%; background: var(--paper); }
+.disc { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.disc-img { width: 100%; height: 180px; object-fit: cover; border-radius: 14px; background: var(--paper-2); }
+.disc-med { padding: 10px 0 4px; }
+.disc h2 { font-family: var(--serif); font-size: 20px; margin: 14px 0 4px; }
+.disc-desc { font-size: 13.5px; line-height: 1.65; text-align: left; margin: 12px 0 0; white-space: pre-line; }
+.disc .sheet-actions { width: 100%; }
+.pill.danger { color: var(--cinnabar); border-color: rgba(178, 58, 50, 0.5); }
+.hall-empty { text-align: center; color: var(--ink-soft); font-size: 13px; line-height: 1.7; margin: auto 0; padding: 40px 0; }

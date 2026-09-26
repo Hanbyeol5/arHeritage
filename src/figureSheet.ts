@@ -1,6 +1,7 @@
 import { app } from './app.ts';
 import { openBottomSheet, openHeritage } from './heritageSheet.ts';
 import { go } from './router.ts';
+import { store } from './store.ts';
 import { el, esc } from './ui/dom.ts';
 import { icons } from './ui/icons.ts';
 import { medal } from './ui/medal.ts';
@@ -10,6 +11,14 @@ export function openFigureSheet(id: string) {
   const f = app.figureById.get(id);
   if (!f) return;
   const nf = app.nearestSiteOf(f);
+  // 인물 시트를 열면(= 인물을 만나면) 역사의 전당에 기록
+  store.record({
+    type: 'figure',
+    refId: f.id,
+    name: f.name,
+    subtitle: `${f.title} · ${f.years}`,
+    description: `${f.bio} — ${nf.site.name}에서 만난 역사 인물입니다.`,
+  });
   const root = el(`<div class="s2">
       <div class="dim"></div>
       <div class="s2-focus">
