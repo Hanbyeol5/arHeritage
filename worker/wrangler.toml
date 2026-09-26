@@ -10,3 +10,8 @@ SITE_BASE = "https://samcho93.github.io/arHeritage/"
 ALLOWED_ORIGINS = "https://samcho93.github.io,http://localhost:5173"
 
 # ANTHROPIC_API_KEY 는 `npx wrangler secret put ANTHROPIC_API_KEY` 로 등록 (로컬은 .dev.vars)
+
+# 사용자 근처 데이터센터(예: 홍콩)에서 실행되면 Claude API 가 지역 제한으로 403 을 돌려주므로,
+# Claude API 서버 근처에서 실행되도록 고정한다.
+[placement]
+hostname = "api.anthropic.com"
