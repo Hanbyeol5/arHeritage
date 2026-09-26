@@ -1,4 +1,5 @@
 import { app } from './app.ts';
+import { loadDetail } from './data.ts';
 import { distance, formatDistance } from './geo.ts';
 import { closeOverlays, openBottomSheet, openHeritage } from './heritageSheet.ts';
 import { go } from './router.ts';
@@ -35,6 +36,7 @@ export function openSiteActions(id: string) {
       <span class="badge">${esc(tag)}</span>
       <h2>${esc(s.name)}</h2>
       <div class="meta">${[s.city, s.era, dist].filter(Boolean).map(esc).join(' · ')}</div>
+      <p class="lead act-summary" hidden></p>
     </div>
     <div class="act-grid">
       <button class="act" data-act="ar"><b>📍</b>여기로 안내</button>
@@ -52,6 +54,17 @@ export function openSiteActions(id: string) {
     </div>`,
     'actions',
   );
+
+  // 요약이 있으면 보여 준다 (LLM 보강 결과)
+  loadDetail(id)
+    .then((d) => {
+      const el = sheet.querySelector<HTMLElement>('.act-summary');
+      if (el && d.summary) {
+        el.textContent = d.summary;
+        el.hidden = false;
+      }
+    })
+    .catch(() => {});
 
   const on = (sel: string, fn: () => void) => sheet.querySelector(sel)?.addEventListener('click', fn);
   on('[data-act=ar]', () => {

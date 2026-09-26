@@ -737,3 +737,4 @@ body.fullscreen .nav { display: none; }
 .act-fig span { font-size: 13.5px; }
 .act-fig b { font-family: var(--serif); font-size: 15px; }
 .act-talk .pill { width: 100%; }
+.sheet-body .lead { margin: 14px 0 0; font-family: var(--serif); font-size: 15px; line-height: 1.6; color: var(--ink); padding: 10px 12px; border-left: 3px solid var(--gold); background: rgba(187, 145, 72, 0.08); border-radius: 0 10px 10px 0; }

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   # 데이터 갱신 워크플로의 커밋은 push 트리거를 발생시키지 않으므로 완료 후 이어서 배포
   workflow_run:
-    workflows: [Update heritage data]
+    workflows: [Update heritage data, Enrich data (LLM)]
     types: [completed]
 
 permissions:

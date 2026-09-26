@@ -31,10 +31,10 @@ const V_FOV = 70;
 function cutout(f: Figure): string {
   if (f.cutout) return `<img src="${esc(asset(f.cutout))}" alt="${esc(f.name)}" draggable="false" />`;
   if (f.fullBody) {
-    const id = f.fullBody === 'king' ? 'bodyKing' : 'bodyGuide';
+    const id = { king: 'bodyKing', lady: 'bodyLady', general: 'bodyGeneral', scholar: 'bodyGuide', guide: 'bodyGuide' }[f.fullBody];
     return `<svg class="tk-body" viewBox="0 0 200 390" aria-label="${esc(f.name)}"><use href="#${id}"/></svg>`;
   }
-  return `<div class="tk-seal"><span>${esc(f.hanja)}</span><small>${esc(f.name)}</small></div>`;
+  return `<div class="tk-seal"><span>${esc(f.hanja || f.name)}</span><small>${esc(f.name)}</small></div>`;
 }
 
 /**

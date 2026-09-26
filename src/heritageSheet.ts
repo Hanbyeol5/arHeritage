@@ -44,8 +44,8 @@ export async function openHeritage(id: string) {
 function render(d: HeritageDetail): string {
   const pos = app.pos;
   const dist = pos ? `여기서 ${formatDistance(distance(pos, d))}` : '';
-  const text = d.summary ?? d.description;
-  const long = !d.summary && text.length > PREVIEW_CHARS;
+  const text = d.description;
+  const long = text.length > PREVIEW_CHARS;
   const paras = text
     .split(/\n\s*\n/)
     .map((p) => `<p>${esc(p.trim())}</p>`)
@@ -81,7 +81,8 @@ function render(d: HeritageDetail): string {
             .join('')}</div>`
         : ''
     }
-    <h3>${d.summary ? '요약' : '설명'}</h3>
+    ${d.summary ? `<p class="lead">${esc(d.summary)}</p>` : ''}
+    <h3>설명</h3>
     <div class="desc ${long ? 'collapsed' : ''}">${paras}</div>
     ${long ? '<button class="link more">더보기</button>' : ''}
     <div class="addr">${icons.place} ${esc(d.address)}</div>

@@ -47,7 +47,9 @@ export interface Figure {
   /** 서버 음성(Azure) 이름 */
   voice?: string;
   /** 초상 정보가 없을 때 AR 에 세울 전신 모습 */
-  fullBody?: 'guide' | 'king' | 'scholar';
+  fullBody?: 'guide' | 'king' | 'scholar' | 'lady' | 'general';
+  /** LLM 이 유적 설명에서 자동으로 추출한 인물 */
+  auto?: boolean;
   /** 역사 인물이 아닌 유적지 해설사 */
   role?: 'guide';
   /** 진본 초상이 없어 새로 그린 상상 초상 */
