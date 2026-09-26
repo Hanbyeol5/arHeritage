@@ -1,45 +1,143 @@
-/** Web Speech API 래퍼 — TTS(speechSynthesis) + STT(SpeechRecognition) */
+/**
+ * 음성 출력·입력
+ * - 인물 목소리: 서버(Worker /tts, Azure 신경망 음성)를 우선 쓰고, 안 되면 기기 음성(Web Speech)으로 대체
+ * - 내 목소리: SpeechRecognition(STT)
+ */
 
 export const canSpeak = () => 'speechSynthesis' in window;
 
-function koreanVoice(): SpeechSynthesisVoice | undefined {
-  return speechSynthesis.getVoices().find((v) => v.lang.startsWith('ko'));
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '');
+/** 서버 음성이 설정되지 않았으면(503) 이번 방문 동안은 다시 묻지 않는다 */
+let serverVoiceOff = !API_BASE;
+
+// iOS 등은 사용자 탭 안에서 한 번 재생해 둔 오디오 요소만 나중에 코드로 재생할 수 있다
+const player = new Audio();
+player.preload = 'auto';
+/** 0.05초 무음 WAV (8kHz, 8bit) */
+const SILENCE = (() => {
+  const n = 400;
+  const b = new Uint8Array(44 + n);
+  const v = new DataView(b.buffer);
+  const str = (o: number, t: string) => [...t].forEach((c, i) => (b[o + i] = c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
+  return `data:audio/wav;base64,${btoa(String.fromCharCode(...b))}`;
+})();
+let unlocked = false;
+export function unlockAudio() {
+  if (unlocked) return;
+  unlocked = true;
+  player.src = SILENCE;
+  player.play().catch(() => (unlocked = false));
 }
 
+export type Gender = 'male' | 'female';
+
+const MALE_HINT = /male(?!.*female)|남성|남자|injoon|hyunsu|gookmin|bongjin|minsu|jinho|x-koc|x-kod/i;
+const FEMALE_HINT = /female|여성|여자|sunhi|yuna|heami|jimin|seohyeon|yujin|x-kob|x-ism/i;
+
+/** 기기의 한국어 음성 중 성별이 맞는 것을 고른다 (없으면 기본 한국어 음성) */
+function deviceVoice(gender: Gender): SpeechSynthesisVoice | undefined {
+  const ko = speechSynthesis.getVoices().filter((v) => v.lang.replace('_', '-').toLowerCase().startsWith('ko'));
+  const want = gender === 'male' ? MALE_HINT : FEMALE_HINT;
+  return ko.find((v) => want.test(`${v.name} ${v.voiceURI}`)) ?? ko[0];
+}
+if (canSpeak()) speechSynthesis.getVoices(); // 일부 브라우저는 목록을 늦게 채운다
+
 export interface SpeakOptions {
-  pitch?: number;
-  rate?: number;
-  /** 읽고 있는 글자 위치 (브라우저·음성에 따라 오지 않을 수 있음) */
-  onBoundary?: (charIndex: number) => void;
+  gender?: Gender;
+  /** 서버 음성에 쓸 인물 id */
+  figureId?: string;
+  /** 읽은 비율(0~1) — 자막을 음성 진행에 맞추는 데 사용 */
+  onProgress?: (fraction: number) => void;
   onEnd?: () => void;
 }
 
-export function speak(text: string, opts: SpeakOptions | (() => void) = {}) {
-  const o: SpeakOptions = typeof opts === 'function' ? { onEnd: opts } : opts;
+let stopCurrent: (() => void) | undefined;
+
+export function stopSpeaking() {
+  stopCurrent?.();
+  stopCurrent = undefined;
+  if (canSpeak()) speechSynthesis.cancel();
+}
+
+/** 서버 음성으로 재생. 실패하면 false */
+async function speakServer(text: string, o: SpeakOptions): Promise<boolean> {
+  if (serverVoiceOff || !o.figureId) return false;
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ figureId: o.figureId, text }),
+    });
+  } catch {
+    return false;
+  }
+  if (res.status === 503) serverVoiceOff = true;
+  if (!res.ok) return false;
+  const url = URL.createObjectURL(await res.blob());
+  return new Promise<boolean>((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      player.ontimeupdate = player.onended = player.onerror = null;
+      URL.revokeObjectURL(url);
+      o.onProgress?.(1);
+      o.onEnd?.();
+    };
+    stopCurrent = () => {
+      player.pause();
+      finish();
+    };
+    player.src = url;
+    player.ontimeupdate = () => player.duration && o.onProgress?.(player.currentTime / player.duration);
+    player.onended = finish;
+    player.onerror = finish;
+    player
+      .play()
+      .then(() => resolve(true))
+      .catch(() => {
+        // 자동 재생이 막혔으면 기기 음성으로 대체
+        done = true;
+        URL.revokeObjectURL(url);
+        resolve(false);
+      });
+  });
+}
+
+/** 기기 음성 — 음높이는 건드리지 않는다 (억지로 낮추면 부자연스러움) */
+function speakDevice(text: string, o: SpeakOptions) {
   if (!canSpeak()) return o.onEnd?.();
-  speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ko-KR';
-  u.rate = o.rate ?? 0.95;
-  u.pitch = o.pitch ?? 0.9;
-  const v = koreanVoice();
+  u.rate = 0.95;
+  const v = deviceVoice(o.gender ?? 'male');
   if (v) u.voice = v;
   let ended = false;
   const end = () => {
     if (ended) return;
     ended = true;
+    o.onProgress?.(1);
     o.onEnd?.();
   };
-  u.onboundary = (e) => o.onBoundary?.(e.charIndex);
+  u.onboundary = (e) => o.onProgress?.(e.charIndex / text.length);
   u.onend = end;
   u.onerror = end;
   speechSynthesis.speak(u);
 }
 
-export function stopSpeaking() {
-  if (canSpeak()) speechSynthesis.cancel();
+export async function speak(text: string, opts: SpeakOptions | (() => void) = {}) {
+  const o: SpeakOptions = typeof opts === 'function' ? { onEnd: opts } : opts;
+  stopSpeaking();
+  if (await speakServer(text, o)) return;
+  speakDevice(text, o);
 }
 
+// ---------- 음성 인식 ----------
 type Recognition = {
   lang: string;
   interimResults: boolean;

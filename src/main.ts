@@ -13,6 +13,7 @@ import { mapScreen } from './screens/map.ts';
 import { notificationsScreen } from './screens/notifications.ts';
 import { profileScreen } from './screens/profile.ts';
 import { talkScreen } from './screens/talk.ts';
+import { unlockAudio } from './speech.ts';
 import { el, toast } from './ui/dom.ts';
 import { icons } from './ui/icons.ts';
 
@@ -61,6 +62,9 @@ document.addEventListener(
   },
   true,
 );
+
+// 인물 목소리(서버 음성)를 코드로 재생할 수 있도록 첫 탭에서 오디오를 풀어 둔다 (iOS)
+document.addEventListener('pointerdown', unlockAudio, { once: true, capture: true });
 
 if (import.meta.env.DEV) Object.assign(window, { __app: app });
 

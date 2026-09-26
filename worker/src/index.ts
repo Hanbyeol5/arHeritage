@@ -3,6 +3,7 @@
  *
  * POST /chat    역사 인물 페르소나 대화 — 인물 소개 + 관련 유적지 국가유산청 설명문을 근거로 답한다.
  * POST /vision  사진 속 문화재 판별 — historydam VisionRepositoryImpl 과 같은 규칙·응답 형식.
+ * POST /tts     인물 목소리 음성 합성 (Azure 신경망 음성, 키가 없으면 503 → 앱이 기기 음성으로 대체)
  *
  * API 키는 Worker 비밀값(ANTHROPIC_API_KEY)에만 있고, 허용한 출처(ALLOWED_ORIGINS)의 요청만 받는다.
  * 인물·유적지 데이터는 배포된 웹앱(SITE_BASE)의 정적 JSON 을 그대로 읽는다.
@@ -17,6 +18,9 @@ export interface Env {
   SITE_BASE: string;
   /** 쉼표로 구분한 허용 출처 */
   ALLOWED_ORIGINS: string;
+  /** Azure Speech (선택) */
+  AZURE_SPEECH_KEY?: string;
+  AZURE_SPEECH_REGION?: string;
 }
 
 const MODEL = 'claude-opus-5';
@@ -34,6 +38,8 @@ interface Figure {
   title: string;
   years: string;
   style: 'king' | 'scholar' | 'lady' | 'general';
+  /** Azure 음성 이름 (예: ko-KR-BongJinNeural) */
+  voice?: string;
   bio: string;
   sites: { id: string; note: string }[];
 }
@@ -97,9 +103,9 @@ const ChatBody = z.object({
 });
 
 function speechStyle(f: Figure): string {
-  if (f.style === 'lady') return '온화하고 품위 있는 조선시대 여인의 말씨(예: "~하지요", "~이랍니다")';
-  if (f.style === 'king') return '임금다운 위엄 있는 말씨(예: "~하였노라", "~이니라", 방문객을 "그대"라 부름)';
-  return '점잖은 옛 선비·관원의 하게체(예: "~하였네", "~이지", 방문객을 "자네"라 부름)';
+  if (f.style === 'lady') return '온화하고 품위 있는 존댓말(예: "~했지요", "~이랍니다")';
+  if (f.style === 'king') return '위엄 있되 부드러운 말씨(예: "~했다네", "~이지", 방문객을 "그대"라 부름). "~하노라" 같은 사극 어미는 한 답에 한 번 이하로만';
+  return '점잖은 어른의 말씨(예: "~했다네", "~이지", 방문객을 "자네"라 부름). 사극 어미는 한 답에 한 번 이하로만';
 }
 
 async function systemPrompt(f: Figure, env: Env, siteId?: string): Promise<string> {
@@ -125,7 +131,8 @@ ${f.bio}
 ${sources || '(없음)'}
 
 [대화 규칙]
-- 말씨: ${speechStyle(f)}. 현대 방문객이 알아듣기 쉬운 우리말로, 어려운 한자어는 풀어 말한다.
+- 말씨: ${speechStyle(f)}. 사극처럼 과장하지 말고, 옛 어른이 오늘날 사람에게 차분히 이야기하듯 자연스러운 우리말로 말한다. 어려운 한자어는 풀어 말한다.
+- 문장은 소리 내어 읽기 좋게 짧게 끊고, 책 이름 겹낫표·따옴표·특수 기호는 쓰지 않는다.
 - 답은 음성으로 읽히므로 2~4문장, 180자 안팎으로 짧게 말한다. 목록·마크다운·이모지·괄호 설명은 쓰지 않는다.
 - 사실은 위 사료와 널리 알려진 역사에 근거한다. 모르거나 기록이 불확실한 것은 지어내지 말고 "그 일은 기록이 분명치 않네"처럼 솔직히 말한다.
 - ${f.years} 이후의 일은 겪지 못했으므로, 후대의 일을 물으면 "내가 떠난 뒤의 일은 알지 못하네"처럼 답하되 필요하면 짧게 짐작을 덧붙인다.
@@ -233,6 +240,44 @@ async function vision(req: Request, client: Anthropic) {
   return { ...v, matchedId: body.candidates.some((c) => c.id === v.matchedId) ? v.matchedId : null };
 }
 
+// ---------- /tts ----------
+const TtsBody = z.object({ figureId: z.string().max(64), text: z.string().min(1).max(600) });
+
+/** 인물 성격에 맞춘 기본 목소리 (figures.json 의 voice 가 우선) */
+const DEFAULT_VOICE: Record<Figure['style'], string> = {
+  king: 'ko-KR-BongJinNeural',
+  scholar: 'ko-KR-InJoonNeural',
+  general: 'ko-KR-GookMinNeural',
+  lady: 'ko-KR-SunHiNeural',
+};
+
+const xml = (s: string) => s.replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&apos;', '"': '&quot;' })[c]!);
+
+async function tts(req: Request, env: Env): Promise<Response> {
+  if (!env.AZURE_SPEECH_KEY || !env.AZURE_SPEECH_REGION) throw new HttpError(503, '서버 음성이 설정되지 않았습니다.');
+  const body = TtsBody.parse(await req.json());
+  const { figures } = await fetchJson<{ figures: Figure[] }>(`${env.SITE_BASE}data/figures.json`);
+  const f = figures.find((x) => x.id === body.figureId);
+  if (!f) throw new HttpError(404, '인물을 찾을 수 없습니다.');
+  const voice = f.voice ?? DEFAULT_VOICE[f.style];
+  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="ko-KR"><voice name="${voice}"><prosody rate="-6%">${xml(body.text)}</prosody></voice></speak>`;
+  const res = await fetch(`https://${env.AZURE_SPEECH_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+    method: 'POST',
+    headers: {
+      'Ocp-Apim-Subscription-Key': env.AZURE_SPEECH_KEY,
+      'Content-Type': 'application/ssml+xml',
+      'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+      'User-Agent': 'yeoksadam-api',
+    },
+    body: ssml,
+  });
+  if (!res.ok) {
+    console.error('Azure TTS 오류', res.status, await res.text().catch(() => ''));
+    throw new HttpError(502, '음성을 만들지 못했습니다.');
+  }
+  return new Response(res.body, { headers: { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' } });
+}
+
 // ---------- 진입점 ----------
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -246,6 +291,11 @@ export default {
     try {
       if (path === '/chat') return json(await chat(req, env, client), 200, headers);
       if (path === '/vision') return json(await vision(req, client), 200, headers);
+      if (path === '/tts') {
+        const audio = await tts(req, env);
+        Object.entries(headers).forEach(([k, v]) => audio.headers.set(k, v));
+        return audio;
+      }
       return json({ error: '없는 경로입니다.' }, 404, headers);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status, headers);

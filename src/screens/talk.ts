@@ -3,7 +3,7 @@ import { reply, session, type Line } from '../conversation.ts';
 import { openFigureSheet } from '../figureSheet.ts';
 import { angleDiff } from '../geo.ts';
 import { go, type Screen } from '../router.ts';
-import { canListen, canSpeak, listen, speak, stopSpeaking } from '../speech.ts';
+import { canListen, canSpeak, listen, speak, stopSpeaking, unlockAudio } from '../speech.ts';
 import type { Figure } from '../types.ts';
 import { asset, esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
@@ -17,12 +17,8 @@ const STATUS: Record<State, string> = {
   speaking: '말하는 중…',
 };
 
-/** 인물별 목소리 느낌 (웹 TTS 는 음성 종류가 적어 높낮이·빠르기로만 구분) */
-const voiceOf = (f: Figure) =>
-  f.style === 'lady' ? { pitch: 1.15, rate: 0.95 } : f.style === 'king' ? { pitch: 0.75, rate: 0.88 } : { pitch: 0.85, rate: 0.92 };
-
-/** 한국어 TTS 대략적인 속도(글자/초) — 읽는 위치 이벤트가 없는 브라우저용 */
-const CHARS_PER_SEC = 7.5;
+/** 한국어 음성 대략적인 속도(글자/초) — 읽는 위치를 알려 주지 않는 기기 음성용 */
+const CHARS_PER_SEC = 7;
 /** 세로 모드 후면 카메라 대략적인 시야각 */
 const H_FOV = 55;
 const V_FOV = 70;
@@ -45,7 +41,6 @@ export const talkScreen: Screen = {
     const f = app.figureById.get(id);
     if (!f) return go('#/qa');
     const lines = session(f);
-    const voice = voiceOf(f);
 
     root.innerHTML = `<div class="scr talk" data-state="idle">
       <video class="tk-cam" playsinline muted autoplay></video>
@@ -187,9 +182,22 @@ export const talkScreen: Screen = {
           return;
         }
         setState('speaking');
-        const start = performance.now();
-        revealTimer = window.setInterval(() => show(((performance.now() - start) / 1000) * CHARS_PER_SEC * voice.rate), 80);
-        speak(l.text, { ...voice, onBoundary: (i) => show(i + 1), onEnd: finish });
+        // 음성 진행률에 맞춰 자막을 드러낸다. 진행률이 오지 않는 기기 음성은 읽기 속도로 추정
+        let progressed = false;
+        const started = performance.now();
+        revealTimer = window.setInterval(() => {
+          const t = performance.now() - started;
+          if (!progressed && t > 1500) show(((t - 1500) / 1000) * CHARS_PER_SEC);
+        }, 100);
+        speak(l.text, {
+          figureId: f.id,
+          gender: f.style === 'lady' ? 'female' : 'male',
+          onProgress: (p) => {
+            progressed = true;
+            show(Math.ceil(p * l.text.length));
+          },
+          onEnd: finish,
+        });
       });
 
     // 처음 만났으면 인사를 음성으로, 이어서 온 대화면 지난 자막을 그대로 보여 준다
@@ -244,6 +252,9 @@ export const talkScreen: Screen = {
         setState('idle');
       }
     };
+
+    // 서버 음성을 나중에 코드로 재생할 수 있도록 첫 탭에서 오디오를 풀어 둔다 (iOS)
+    root.addEventListener('pointerdown', unlockAudio, { once: true });
 
     $('.tk-mic').addEventListener('click', () => {
       sensor.requestPermission(); // iOS: 제스처 안에서 방향 센서 권한
