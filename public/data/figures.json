@@ -15,7 +15,7 @@
     },
     {
       "id": "chae-jegong", "name": "채제공", "hanja": "蔡濟恭", "title": "번암", "years": "1720–1799",
-      "seal": "蔡", "style": "scholar", "portrait": "figures/chae-jegong.jpg",
+      "seal": "蔡", "style": "scholar", "portrait": "figures/chae-jegong.jpg", "cutout": "figures/chae-jegong-cutout.png",
       "portraitCredit": "채제공 초상(18세기), 퍼블릭 도메인",
       "bio": "정조의 신임을 받은 재상으로 영의정에 올랐다. 수원 화성 축성을 총괄하였다.",
       "sites": [

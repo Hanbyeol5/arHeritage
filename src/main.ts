@@ -6,13 +6,13 @@ import { DEMO_POSITION, LocationTracker } from './location.ts';
 import { Router, type Screen, type Tab } from './router.ts';
 import { arScreen } from './screens/ar.ts';
 import { cameraScreen } from './screens/camera.ts';
-import { chatScreen, qaScreen } from './screens/chat.ts';
+import { qaScreen } from './screens/qa.ts';
 import { figuresScreen } from './screens/figures.ts';
 import { homeScreen } from './screens/home.ts';
 import { mapScreen } from './screens/map.ts';
 import { notificationsScreen } from './screens/notifications.ts';
 import { profileScreen } from './screens/profile.ts';
-import { voiceScreen } from './screens/voice.ts';
+import { talkScreen } from './screens/talk.ts';
 import { el, toast } from './ui/dom.ts';
 import { icons } from './ui/icons.ts';
 
@@ -47,8 +47,7 @@ const router = new Router(view, onScreen)
   .add(/^\/camera$/, cameraScreen)
   .add(/^\/ar(?:\/([^/]+))?$/, arScreen)
   .add(/^\/qa$/, qaScreen)
-  .add(/^\/chat\/([^/]+)$/, chatScreen)
-  .add(/^\/voice\/([^/]+)$/, voiceScreen)
+  .add(/^\/(?:talk|chat|voice)\/([^/]+)$/, talkScreen)
   .add(/^\/figures$/, figuresScreen)
   .add(/^\/profile$/, profileScreen)
   .add(/^\/notifications$/, notificationsScreen);

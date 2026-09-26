@@ -37,6 +37,8 @@ export interface Figure {
   style: FigureStyle;
   bio: string;
   portrait?: string;
+  /** 배경을 제거한 AR 용 초상 (없으면 목업 일러스트 컷아웃) */
+  cutout?: string;
   portraitCredit?: string;
   sites: { id: string; note: string }[];
 }

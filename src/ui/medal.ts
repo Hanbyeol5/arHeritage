@@ -1,11 +1,12 @@
 import type { Figure } from '../types.ts';
 import { asset, esc } from './dom.ts';
 
-const ILLUST: Record<Figure['style'], string> = {
-  king: 'figKing',
-  scholar: 'figScholar',
-  lady: 'figLady',
-  general: 'figGeneral',
+/** 목업 인물 일러스트(배경 없는 컷아웃)와 메달용 비단 배경 */
+export const ILLUST: Record<Figure['style'], { id: string; silk: string }> = {
+  king: { id: 'figKing', silk: 'silkRed' },
+  scholar: { id: 'figScholar', silk: 'silkCream' },
+  lady: { id: 'figLady', silk: 'silkBlush' },
+  general: { id: 'figGeneral', silk: 'silkCel' },
 };
 
 interface MedalOpts {
@@ -18,7 +19,7 @@ interface MedalOpts {
 export function medal(f: Figure, { size, seal = false, cls = '' }: MedalOpts): string {
   const inner = f.portrait
     ? `<img src="${esc(asset(f.portrait))}" alt="${esc(f.name)} 초상" draggable="false" />`
-    : `<svg viewBox="0 0 200 200" aria-hidden="true"><use href="#${ILLUST[f.style]}"/></svg>`;
+    : `<svg viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" fill="url(#${ILLUST[f.style].silk})"/><use href="#${ILLUST[f.style].id}"/></svg>`;
   const mark = seal ? `<div class="seal-mark">${esc(f.seal)}</div>` : '';
   return `<div class="med ${cls}" style="--s:${size}px" role="img" aria-label="${esc(f.name)}">${inner}${mark}</div>`;
 }

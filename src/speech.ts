@@ -6,17 +6,33 @@ function koreanVoice(): SpeechSynthesisVoice | undefined {
   return speechSynthesis.getVoices().find((v) => v.lang.startsWith('ko'));
 }
 
-export function speak(text: string, onEnd?: () => void) {
-  if (!canSpeak()) return onEnd?.();
+export interface SpeakOptions {
+  pitch?: number;
+  rate?: number;
+  /** 읽고 있는 글자 위치 (브라우저·음성에 따라 오지 않을 수 있음) */
+  onBoundary?: (charIndex: number) => void;
+  onEnd?: () => void;
+}
+
+export function speak(text: string, opts: SpeakOptions | (() => void) = {}) {
+  const o: SpeakOptions = typeof opts === 'function' ? { onEnd: opts } : opts;
+  if (!canSpeak()) return o.onEnd?.();
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ko-KR';
-  u.rate = 0.95;
-  u.pitch = 0.9;
+  u.rate = o.rate ?? 0.95;
+  u.pitch = o.pitch ?? 0.9;
   const v = koreanVoice();
   if (v) u.voice = v;
-  u.onend = () => onEnd?.();
-  u.onerror = () => onEnd?.();
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    o.onEnd?.();
+  };
+  u.onboundary = (e) => o.onBoundary?.(e.charIndex);
+  u.onend = end;
+  u.onerror = end;
   speechSynthesis.speak(u);
 }
 
@@ -39,8 +55,8 @@ type Recognition = {
 const RecognitionCtor = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
 export const canListen = () => !!RecognitionCtor;
 
-/** 한 번 듣기. interim 으로 중간 결과, 최종 문장으로 resolve */
-export function listen(onInterim: (text: string) => void): { done: Promise<string>; stop: () => void } {
+/** 한 번 듣기. interim 으로 중간 결과, 최종 문장으로 resolve (말이 없으면 빈 문자열) */
+export function listen(onInterim: (text: string) => void): { done: Promise<string>; stop: () => void; abort: () => void } {
   const rec: Recognition = new RecognitionCtor();
   rec.lang = 'ko-KR';
   rec.interimResults = true;
@@ -56,10 +72,16 @@ export function listen(onInterim: (text: string) => void): { done: Promise<strin
       }
       onInterim(finalText + interim);
     };
-    rec.onerror = (e) =>
+    rec.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return; // onend 에서 빈 문자열로 종료
       reject(new Error(e.error === 'not-allowed' ? '마이크 권한이 거부되었습니다.' : '음성을 인식하지 못했습니다.'));
+    };
     rec.onend = () => resolve(finalText.trim());
   });
-  rec.start();
-  return { done, stop: () => rec.stop() };
+  try {
+    rec.start();
+  } catch {
+    /* 이미 시작된 경우 등 — onend 로 정리 */
+  }
+  return { done, stop: () => rec.stop(), abort: () => rec.abort() };
 }

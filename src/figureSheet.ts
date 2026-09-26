@@ -44,7 +44,7 @@ export function openFigureSheet(id: string) {
   });
   root.querySelector('[data-act=chat]')!.addEventListener('click', () => {
     close();
-    go(`#/chat/${encodeURIComponent(f.id)}`);
+    go(`#/talk/${encodeURIComponent(f.id)}`);
   });
   root.querySelector('[data-act=sites]')!.addEventListener('click', () => {
     close();
