@@ -1,3 +1,4 @@
+import { josa } from '../ui/josa.ts';
 import { app } from '../app.ts';
 import { openBottomSheet } from '../heritageSheet.ts';
 import type { Screen } from '../router.ts';
@@ -96,7 +97,7 @@ function openDiscovery(d: Discovery) {
   );
   sheet.querySelector('[data-act=close]')!.addEventListener('click', () => sheet.remove());
   sheet.querySelector('[data-act=del]')!.addEventListener('click', () => {
-    if (!confirm(`'${d.name}'을(를) 역사의 전당에서 삭제할까요?`)) return;
+    if (!confirm(`${josa(`'${d.name}'`, '을/를')} 역사의 전당에서 삭제할까요?`)) return;
     store.remove(d);
     sheet.remove();
   });

@@ -703,3 +703,5 @@ body.fullscreen .nav { display: none; }
 .tk-top, .tk-controls, .tk-type, .tk-voice, .ar-top, .ar-hud { transition: opacity 0.35s ease; }
 .ui-hidden .tk-top, .ui-hidden .tk-controls, .ui-hidden .tk-type,
 .ui-hidden .ar-top, .ui-hidden .ar-hud { opacity: 0; pointer-events: none; }
+.tk-status[data-note='blocked'] { color: #fff; background: var(--cinnabar); padding: 5px 12px; border-radius: 14px; animation: blink 1.4s infinite; }
+.tk-status[data-note='silent'] { color: var(--gold-2); }

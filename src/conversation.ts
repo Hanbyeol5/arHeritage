@@ -1,3 +1,4 @@
+import { josa } from './ui/josa.ts';
 import { app } from './app.ts';
 import type { Figure } from './types.ts';
 
@@ -20,11 +21,11 @@ export function session(f: Figure): Line[] {
     const site = app.nearestSiteOf(f).site.name;
     const greet =
       f.role === 'guide'
-        ? `어서 오세요. 저는 ${site}을(를) 안내하는 해설사입니다. 궁금한 것을 편하게 물어보세요.`
+        ? `어서 오세요. 저는 ${josa(site, '을/를')} 안내하는 해설사입니다. 궁금한 것을 편하게 물어보세요.`
         : f.style === 'lady'
         ? `어서 오세요. ${site}에서 뵙게 되어 반갑습니다.`
         : f.style === 'king'
-          ? `그대가 ${site}을(를) 찾아왔구나. 무엇이 궁금한고?`
+          ? `그대가 ${josa(site, '을/를')} 찾아왔구나. 무엇이 궁금한고?`
           : `어서 오시게. ${site}에는 들러보셨는가?`;
     s = [{ mine: false, text: greet }];
     sessions.set(f.id, s);

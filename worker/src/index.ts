@@ -147,7 +147,7 @@ async function guidePrompt(siteId: string, env: Env): Promise<string> {
   if (!/^[\w-]{1,40}$/.test(siteId)) throw new HttpError(400, '유적지 id 가 올바르지 않습니다.');
   const d = await fetchJson<Detail>(`${env.SITE_BASE}data/detail/${siteId}.json`).catch(() => undefined);
   if (!d) throw new HttpError(404, '유적지를 찾을 수 없습니다.');
-  return `너는 AR 앱 '역사담'에서 '${d.name}'을(를) 안내하는 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서, 유적 앞에 선 방문객과 얼굴을 마주 보고 이야기한다.
+  return `너는 AR 앱 '역사담'에서 '${d.name}'의 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서, 유적 앞에 선 방문객과 얼굴을 마주 보고 이야기한다.
 
 [안내할 유적 — 국가유산청 설명]
 ${d.name} (${d.designation}${d.era ? `, ${d.era}` : ''}) / ${d.address}

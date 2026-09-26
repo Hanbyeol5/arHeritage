@@ -1,3 +1,4 @@
+import { josa } from '../ui/josa.ts';
 import { app } from '../app.ts';
 import { reply, session, type Line } from '../conversation.ts';
 import { openFigureSheet } from '../figureSheet.ts';
@@ -132,7 +133,7 @@ export const talkScreen: Screen = {
       find.hidden = !out;
       if (out) {
         find.className = `tk-find ${delta < 0 ? 'left' : 'right'}`;
-        find.textContent = delta < 0 ? `◀ ${f.name}은(는) 이쪽에` : `${f.name}은(는) 이쪽에 ▶`;
+        find.textContent = delta < 0 ? `◀ ${josa(f.name, '은/는')} 이쪽에` : `${josa(f.name, '은/는')} 이쪽에 ▶`;
       }
       raf = requestAnimationFrame(frame);
     };
@@ -154,7 +155,13 @@ export const talkScreen: Screen = {
     world.addEventListener('pointerleave', endDrag);
 
     // ---------- 대화 ----------
+    const showStatus = (msg: string, cls: string) => {
+      const el = $('.tk-status');
+      el.textContent = msg;
+      el.dataset.note = cls;
+    };
     const setState = (s: State) => {
+      delete $('.tk-status').dataset.note;
       state = s;
       scr.dataset.state = s;
       $('.tk-status').textContent = conversing && s === 'idle' ? '잠시 후 다시 듣습니다…' : STATUS[s];
@@ -210,6 +217,9 @@ export const talkScreen: Screen = {
             show(Math.ceil(p * l.text.length));
           },
           onEnd: finish,
+          onBlocked: () => showStatus('🔊 화면을 터치하면 목소리가 나와요', 'blocked'),
+          onUnblocked: () => setState('speaking'),
+          onSilent: (reason) => showStatus(reason, 'silent'),
         });
       });
 

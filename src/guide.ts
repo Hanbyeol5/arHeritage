@@ -1,3 +1,4 @@
+import { josa } from './ui/josa.ts';
 import { app } from './app.ts';
 import type { Figure } from './types.ts';
 
@@ -18,7 +19,7 @@ export function guideFor(siteId: string | null): Figure | undefined {
     style: 'scholar',
     role: 'guide',
     fullBody: 'guide',
-    bio: `${site.name}을(를) 안내하는 문화유산 해설사`,
+    bio: `${josa(site.name, '을/를')} 안내하는 문화유산 해설사`,
     sites: [{ id: site.id, note: '안내하는 유적지' }],
   };
 }
