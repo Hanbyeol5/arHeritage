@@ -19,8 +19,9 @@ export class AREngine {
   /** 세로 모드 기준 대략적인 후면 카메라 시야각 */
   static H_FOV = 55;
   static V_FOV = 70;
-  static MAX_DISTANCE = 2000;
-  static MAX_LABELS = 10;
+  static MAX_LABELS = 12;
+  /** 표시 반경(m) — 화면에서 1·3·5·10km 중 고른다 */
+  radius = 10000;
 
   private stream?: MediaStream;
   private running = false;
@@ -101,7 +102,7 @@ export class AREngine {
     const visible = new Set<string>();
     const candidates = this.items
       .map((it) => ({ it, d: distance(pos, it) }))
-      .filter((c) => c.d <= AREngine.MAX_DISTANCE || c.it.id === this.target?.id)
+      .filter((c) => c.d <= this.radius || c.it.id === this.target?.id)
       .map((c) => ({ ...c, delta: angleDiff(bearing(pos, c.it), heading) }));
 
     const inView = candidates
@@ -121,7 +122,7 @@ export class AREngine {
       el.querySelector('.ar-dist')!.textContent = formatDistance(c.d);
       // 멀수록 위쪽·작게 배치해 겹침을 줄인다
       // 타깃은 멀리 있어도 눈높이 근처에 둔다
-      const t = isTarget ? 0.2 : Math.min(1, c.d / AREngine.MAX_DISTANCE);
+      const t = isTarget ? 0.2 : Math.min(1, Math.log1p(c.d / 100) / Math.log1p(this.radius / 100));
       const x = w / 2 + c.delta * pxPerDegX;
       const y = horizonY - 40 - t * h * 0.28 - (rank % 3) * 14;
       const scale = isTarget ? 1.15 : 1.05 - t * 0.4;

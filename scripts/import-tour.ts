@@ -2,12 +2,12 @@
  * 경기도 역사관광지 현황(경기데이터드림, data/경기도역사관광지현황.json) 반영
  *
  * - 이미 있는 국가유산·향토유산과 겹치면(가까운 위치 + 비슷한 이름) 새로 넣지 않고 전화번호만 보탠다.
- * - 겹치지 않는 곳(예: 수원 화성의 각 문, 파주 이이·신사임당 묘)은 '역사관광지'로 추가한다.
+ * - 겹치지 않는 곳 중 '생가'만 '역사관광지'로 추가한다 (그 밖의 관광지는 넣지 않음).
  * 반드시 fetch-heritage, fetch-hyangto 다음에 실행한다.
  * 사용: npm run data:tour
  */
 import { createHash } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { HeritageDetail, HeritageIndex, HeritageSummary } from '../src/types.ts';
 
@@ -80,6 +80,8 @@ async function main() {
       merged++;
       continue;
     }
+    // 새로 추가하는 것은 역사 인물의 생가만
+    if (!/생가/.test(name)) continue;
 
     const id = `tr-${createHash('sha1').update(`${r.sigun_nm}|${name}`).digest('hex').slice(0, 10)}`;
     const address = r.refine_road_nm_addr || r.refine_lotno_addr;
@@ -117,10 +119,15 @@ async function main() {
     added++;
   }
 
+  // 지난번에 만들었다가 이번에 빠진 역사관광지 상세 파일 정리
+  const keep = new Set(index.items.filter((i) => i.tour).map((i) => i.id));
+  for (const f of await readdir(path.join(OUT, 'detail'))) {
+    if (f.startsWith('tr-') && !keep.has(f.replace('.json', ''))) await rm(path.join(OUT, 'detail', f));
+  }
   index.count = index.items.length;
   index.source = '국가유산청 오픈API · 공공데이터포털 전국향토유산표준데이터 · 경기도 역사관광지 현황';
   await writeFile(path.join(OUT, 'index.json'), JSON.stringify(index));
-  console.log(`역사관광지 ${rows.length}곳: 기존 유적과 겹침 ${merged}곳(전화번호 보강), 새로 추가 ${added}곳 → 전체 ${index.count}곳`);
+  console.log(`역사관광지 ${rows.length}곳: 기존 유적과 겹침 ${merged}곳(전화번호 보강), 생가 새로 추가 ${added}곳 → 전체 ${index.count}곳`);
 }
 
 main().catch((e) => {

@@ -88,6 +88,7 @@ function render(d: HeritageDetail): string {
     ${d.tel ? `<a class="tel" href="tel:${esc(d.tel.replace(/[^0-9+]/g, ''))}">☎ ${esc(d.tel)}</a>` : ''}
     <button class="pill solid talk-guide">${icons.talk} 해설사와 이야기하기</button>
     <div class="sheet-actions">
+      <button class="pill outline go-ar">📍 여기로 안내</button>
       <button class="pill outline show-map">${icons.map} 지도에서 보기</button>
       <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">${d.local ? '공공데이터포털' : d.tour ? '경기데이터드림' : '국가유산포털'}</a>
     </div>
@@ -102,6 +103,10 @@ function bind(sheet: HTMLElement, d: HeritageDetail) {
   sheet.querySelector('.talk-guide')!.addEventListener('click', () => {
     closeOverlays();
     go(`#/talk/guide?site=${encodeURIComponent(d.id)}`);
+  });
+  sheet.querySelector('.go-ar')!.addEventListener('click', () => {
+    closeOverlays();
+    go(`#/ar?site=${encodeURIComponent(d.id)}`);
   });
   sheet.querySelector('.show-map')!.addEventListener('click', () => {
     closeOverlays();

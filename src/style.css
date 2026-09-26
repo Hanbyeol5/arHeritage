@@ -713,3 +713,27 @@ body.fullscreen .nav { display: none; }
 .ar-label.tour { box-shadow: 0 0 0 1.5px var(--dancheong), 0 6px 14px rgba(0, 0, 0, 0.35); }
 .ar-label.tour small::before { content: '관광 · '; color: var(--dancheong); font-weight: 700; }
 .sheet-body .tel { display: inline-block; margin-top: 6px; font-size: 12.5px; color: var(--celadon-deep); font-weight: 600; text-decoration: none; }
+/* AR 반경 선택 */
+.ar-radius {
+  position: absolute; top: calc(66px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 6;
+  display: flex; gap: 4px; padding: 3px; border-radius: 20px; background: rgba(0, 0, 0, 0.4); transition: opacity 0.35s ease;
+}
+.ar-radius button { border: 0; background: none; color: rgba(255, 255, 255, 0.8); font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 16px; }
+.ar-radius button.on { background: var(--cinnabar); color: #fff; }
+.ui-hidden .ar-radius { opacity: 0; pointer-events: none; }
+.chip-x { margin-left: 4px; color: var(--ink-soft); text-decoration: none; font-size: 14px; padding: 4px; }
+.cam .ar-notice { top: calc(106px + var(--safe-t)); }
+/* 라벨을 눌렀을 때의 동작 카드 */
+.act-head h2 { margin: 8px 40px 2px 0; font-family: var(--serif); font-size: 20px; }
+.act-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 16px 0 12px; }
+.act {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 4px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--paper); font-size: 12.5px; font-weight: 600; color: var(--ink);
+}
+.act b { font-size: 20px; }
+.act-talk { display: flex; flex-direction: column; gap: 8px; }
+.act-fig { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--paper); text-align: left; }
+.act-fig .med { box-shadow: 0 0 0 2px var(--paper-card), 0 0 0 3.5px var(--gold); }
+.act-fig span { font-size: 13.5px; }
+.act-fig b { font-family: var(--serif); font-size: 15px; }
+.act-talk .pill { width: 100%; }
