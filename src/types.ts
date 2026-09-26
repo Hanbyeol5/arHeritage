@@ -40,6 +40,8 @@ export interface Figure {
   /** 배경을 제거한 AR 용 초상 (없으면 목업 일러스트 컷아웃) */
   cutout?: string;
   portraitCredit?: string;
+  /** 진본 초상이 없어 새로 그린 상상 초상 */
+  imagined?: boolean;
   sites: { id: string; note: string }[];
 }
 

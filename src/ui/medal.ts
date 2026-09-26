@@ -19,7 +19,8 @@ interface MedalOpts {
 export function medal(f: Figure, { size, seal = false, cls = '' }: MedalOpts): string {
   const inner = f.portrait
     ? `<img src="${esc(asset(f.portrait))}" alt="${esc(f.name)} 초상" draggable="false" />`
-    : `<svg viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" fill="url(#${ILLUST[f.style].silk})"/><use href="#${ILLUST[f.style].id}"/></svg>`;
+    : // 초상이 아직 없으면 비단 바탕에 한자 이름을 새긴 인장형 메달
+      `<div class="med-name"><svg viewBox="0 0 200 200" aria-hidden="true"><rect width="200" height="200" fill="url(#${ILLUST[f.style].silk})"/></svg><span>${esc(f.hanja)}</span></div>`;
   const mark = seal ? `<div class="seal-mark">${esc(f.seal)}</div>` : '';
   return `<div class="med ${cls}" style="--s:${size}px" role="img" aria-label="${esc(f.name)}">${inner}${mark}</div>`;
 }

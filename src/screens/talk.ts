@@ -7,7 +7,6 @@ import { canListen, canSpeak, listen, speak, stopSpeaking } from '../speech.ts';
 import type { Figure } from '../types.ts';
 import { asset, esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
-import { ILLUST } from '../ui/medal.ts';
 
 type State = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -28,11 +27,11 @@ const CHARS_PER_SEC = 7.5;
 const H_FOV = 55;
 const V_FOV = 70;
 
-/** 배경을 걷어낸 인물 (사진 컷아웃이 있으면 사진, 없으면 목업 일러스트) */
+/** 배경을 걷어낸 인물 (초상 컷아웃이 아직 없으면 한자 이름 인장) */
 function cutout(f: Figure): string {
   return f.cutout
     ? `<img src="${esc(asset(f.cutout))}" alt="${esc(f.name)}" draggable="false" />`
-    : `<svg viewBox="0 0 200 200" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#${ILLUST[f.style].id}"/></svg>`;
+    : `<div class="tk-seal"><span>${esc(f.hanja)}</span><small>${esc(f.name)}</small></div>`;
 }
 
 /**

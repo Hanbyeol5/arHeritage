@@ -24,7 +24,10 @@ export function openFigureSheet(id: string) {
       <div class="s2-focus">
         ${medal(f, { size: 150, seal: true })}
         <div class="nm">${esc(f.name)}<small>${esc(nf.site.name)} · ${esc(app.distanceLabel(nf.distance))}</small></div>
-        <p class="s2-bio" hidden>${esc(f.title)} · ${esc(f.years)}<br />${esc(f.bio)}</p>
+        ${f.imagined ? '<span class="s2-imagined">상상 초상</span>' : ''}
+        <p class="s2-bio" hidden>${esc(f.title)} · ${esc(f.years)}<br />${esc(f.bio)}${
+          f.portraitCredit ? `<small class="s2-credit">초상: ${esc(f.portraitCredit)}</small>` : ''
+        }</p>
       </div>
       <div class="s2-actions">
         <button class="pill outline" data-act="sites">${icons.site} 관련 유적지</button>
