@@ -254,7 +254,7 @@ export default {
       if (e instanceof Anthropic.APIError) {
         console.error('Claude API 오류', e.status, e.message);
         // 원인 파악용 상태 코드만 전달 (401: 키 오류, 400: 요청 형식, 529: 과부하)
-        return json({ error: '인물이 잠시 대답하지 못합니다.', upstream: e.status, detail: e.message.slice(0, 300) }, 502, headers);
+        return json({ error: '인물이 잠시 대답하지 못합니다.', upstream: e.status }, 502, headers);
       }
       console.error(e);
       return json({ error: '서버 오류가 발생했습니다.' }, 500, headers);
