@@ -5,3 +5,7 @@ dev-dist
 .env.local
 .env.*.local
 *.log
+
+# 원본 내려받기 파일 (역사관광지 JSON 만 사용)
+data/*
+!data/경기도역사관광지현황.json

@@ -13,6 +13,8 @@ export interface HeritageSummary {
   thumb?: string;
   /** 시·군 지정 향토유산 */
   local?: boolean;
+  /** 경기도 역사관광지 */
+  tour?: boolean;
 }
 
 export interface HeritageIndex {
@@ -83,6 +85,10 @@ export interface HeritageDetail {
   sourceUrl: string;
   /** 시·군 지정 향토유산 */
   local?: boolean;
+  /** 경기도 역사관광지 */
+  tour?: boolean;
+  /** 관리기관 전화번호 */
+  tel?: string;
   /** LLM 보강 단계(빌드 시점)에서 추가 */
   summary?: string;
   persons?: RelatedPerson[];

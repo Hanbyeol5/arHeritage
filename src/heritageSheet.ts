@@ -85,12 +85,13 @@ function render(d: HeritageDetail): string {
     <div class="desc ${long ? 'collapsed' : ''}">${paras}</div>
     ${long ? '<button class="link more">더보기</button>' : ''}
     <div class="addr">${icons.place} ${esc(d.address)}</div>
+    ${d.tel ? `<a class="tel" href="tel:${esc(d.tel.replace(/[^0-9+]/g, ''))}">☎ ${esc(d.tel)}</a>` : ''}
     <button class="pill solid talk-guide">${icons.talk} 해설사와 이야기하기</button>
     <div class="sheet-actions">
       <button class="pill outline show-map">${icons.map} 지도에서 보기</button>
-      <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">${d.local ? '공공데이터포털' : '국가유산포털'}</a>
+      <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">${d.local ? '공공데이터포털' : d.tour ? '경기데이터드림' : '국가유산포털'}</a>
     </div>
-    <div class="credit">출처: ${d.local ? `공공데이터포털 전국향토유산표준데이터 (${esc(d.city)})` : '국가유산청'}</div>`;
+    <div class="credit">출처: ${d.local ? `공공데이터포털 전국향토유산표준데이터 (${esc(d.city)})` : d.tour ? '경기데이터드림 경기도 역사관광지 현황' : '국가유산청'}</div>`;
 }
 
 function bind(sheet: HTMLElement, d: HeritageDetail) {
