@@ -74,7 +74,7 @@ function render(d: HeritageDetail): string {
         ? `<h3>이곳의 인물</h3><div class="hs-figs">${figures
             .map(
               (f) =>
-                `<button class="hs-fig" data-fig="${esc(f.id)}">${medal(f, { size: 52 })}<span>${esc(f.name)}</span><small>${esc(
+                `<button class="hs-fig" data-fig="${esc(f.id)}">${medal(f, { size: 52 })}<span>${esc(f.name)}</span><em>대화하기</em><small>${esc(
                   f.sites.find((s) => s.id === d.id)?.note ?? '',
                 )}</small></button>`,
             )
@@ -88,9 +88,9 @@ function render(d: HeritageDetail): string {
     <button class="pill solid talk-guide">${icons.talk} 해설사와 이야기하기</button>
     <div class="sheet-actions">
       <button class="pill outline show-map">${icons.map} 지도에서 보기</button>
-      <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">국가유산포털</a>
+      <a class="pill outline" href="${esc(d.sourceUrl)}" target="_blank" rel="noopener">${d.local ? '공공데이터포털' : '국가유산포털'}</a>
     </div>
-    <div class="credit">출처: 국가유산청</div>`;
+    <div class="credit">출처: ${d.local ? `공공데이터포털 전국향토유산표준데이터 (${esc(d.city)})` : '국가유산청'}</div>`;
 }
 
 function bind(sheet: HTMLElement, d: HeritageDetail) {
@@ -106,11 +106,11 @@ function bind(sheet: HTMLElement, d: HeritageDetail) {
     closeOverlays();
     go(`#/map?site=${encodeURIComponent(d.id)}`);
   });
+  // 이곳의 인물을 누르면 바로 그 인물과 대화
   sheet.querySelectorAll<HTMLElement>('[data-fig]').forEach((b) =>
-    b.addEventListener('click', async () => {
-      const { openFigureSheet } = await import('./figureSheet.ts');
-      sheet.remove();
-      openFigureSheet(b.dataset.fig!);
+    b.addEventListener('click', () => {
+      closeOverlays();
+      go(`#/talk/${encodeURIComponent(b.dataset.fig!)}`);
     }),
   );
 }

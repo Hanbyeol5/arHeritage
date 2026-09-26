@@ -144,7 +144,7 @@ export class AREngine {
     let el = this.labels.get(it.id);
     if (!el) {
       el = document.createElement('button');
-      el.className = 'ar-label';
+      el.className = it.local ? 'ar-label local' : 'ar-label';
       el.innerHTML = `<strong></strong><small></small><span class="ar-dist"></span>`;
       el.querySelector('strong')!.textContent = it.name;
       el.querySelector('small')!.textContent = it.designation;

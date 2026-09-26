@@ -11,6 +11,8 @@ export interface HeritageSummary {
   lat: number;
   lng: number;
   thumb?: string;
+  /** 시·군 지정 향토유산 */
+  local?: boolean;
 }
 
 export interface HeritageIndex {
@@ -79,6 +81,8 @@ export interface HeritageDetail {
   images: { url: string; desc: string }[];
   description: string;
   sourceUrl: string;
+  /** 시·군 지정 향토유산 */
+  local?: boolean;
   /** LLM 보강 단계(빌드 시점)에서 추가 */
   summary?: string;
   persons?: RelatedPerson[];

@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run data:fetch -- --region=31 --refresh
+      # 국가유산청 데이터 다음에 향토유산을 덧붙인다
+      - run: npm run data:hyangto
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
