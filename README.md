@@ -44,6 +44,7 @@
 | **AR 방향 안내** | 목표 유적(또는 인물이 있는 유적)으로 화살표와 남은 거리 안내 |
 | **인물·해설사 대화** | 후면 카메라 위에 배경을 제거한 인물이 서 있고, 라이브 방송 자막처럼 대화가 흐름. 내 음성 → 글자, 인물의 말 → 글자 + 음성 |
 | **대화 방식 선택 (RAG)** | 메뉴 설정에서 기본 / **RAG 서버(역사담 내장: 질문마다 유적 자료 검색 + 근거 표시)** / 외부 RAG 서버(historydam 호환) 선택 |
+| **RAG 자료 편집기** | 웹앱과 분리된 `/editor/` 페이지에서 RAG 자료를 고치기·빼기·추가 → GitHub 에 반영하면 색인이 다시 만들어져 대화에 쓰임 |
 | **지도** | 네이버 지도에 인물 핑·유적 핀·내 위치, 「○○까지 걷기 · 도보 N분」, [찾기] → AR |
 | **유물·건물 인식** | 촬영 → 주변 국가유산 후보 + Claude 비전 판별 → 국가유산청 공식 설명으로 보강, 후보로 보정, 음성 해설 |
 | **모든 인물** | 가나다순(초성 색인)·주변 순, 검색, 미발견 인물은 잠긴 메달 |
@@ -178,6 +179,7 @@ flowchart TD
 ```
 arHeritige/
 ├─ index.html                 앱 셸 + 인물 일러스트·전신 실루엣 SVG(defs)
+├─ editor/index.html          RAG 자료 편집기 페이지 (웹앱에 링크 없음)
 ├─ vite.config.ts             base 경로, PWA 매니페스트(fullscreen)·Workbox 캐시 규칙
 ├─ public/
 │  ├─ icon.svg                앱 아이콘(談)
@@ -186,12 +188,13 @@ arHeritige/
 │     ├─ index.json           지도·AR용 유적 목록(1,486곳, 경량)
 │     ├─ detail/<id>.json     유적 상세(설명·사진·주소·전화)
 │     ├─ figures.json         역사 인물(초상·목소리·관련 유적)
+│     ├─ rag-edits.json       RAG 자료 편집기의 수정 사항 (글 바꾸기·제외·추가)
 │     └─ rag/                 RAG 검색 색인 (meta.json, b/0~255.json, c/0~70.json)
 ├─ scripts/                   데이터 수집 (빌드 시점)
 │  ├─ fetch-heritage.ts       국가유산청 오픈API → index/detail
 │  ├─ fetch-hyangto.ts        공공데이터포털 향토유산 → index/detail(hy-*)
 │  ├─ import-tour.ts          경기도 역사관광지 → 중복 대조·생가 추가(tr-*)
-│  └─ build-rag.ts            유적 설명·인물 소개 → RAG 색인(public/data/rag)
+│  └─ build-rag.ts            유적 설명·인물 소개 + rag-edits.json → RAG 색인(public/data/rag)
 ├─ data/경기도역사관광지현황.json   역사관광지 원본(경기데이터드림)
 ├─ src/
 │  ├─ main.ts                 하단 5탭, 라우팅, 시작 화면, 전체 화면·오디오 잠금 해제
@@ -213,6 +216,7 @@ arHeritige/
 │  ├─ store.ts                도감·알림·닉네임·대화 방식 설정 (localStorage)
 │  ├─ types.ts                데이터 타입
 │  ├─ style.css               단청·한지 테마 전체 스타일
+│  ├─ editor/                 RAG 자료 편집기 (main.ts · editor.css)
 │  ├─ screens/                home · map · ar · talk · camera · qa · figures · profile · notifications
 │  └─ ui/                     icons · medal(초상 메달) · chrome(상단바) · dom · josa(조사) · immersive
 ├─ worker/                    Cloudflare Worker (대화·인식·음성 API)
@@ -499,6 +503,65 @@ app.add_middleware(
 
 BM25 는 표현이 다른 질문(동의어·의역)에 약합니다. 의미 검색이 필요하면 조각을 Workers AI 다국어 임베딩(`@cf/baai/bge-m3`)으로 벡터화해 Cloudflare Vectorize 에 넣고 BM25 와 섞는 하이브리드 검색으로 확장할 수 있습니다 (Cloudflare API 토큰에 Vectorize·Workers AI 권한 추가 필요).
 
+#### 9.3.5 RAG 자료 편집기 (`/editor/`, 웹앱과 분리된 관리 도구)
+
+RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 페이지입니다. **웹앱 메뉴에는 링크가 없고**, 아래 주소로만 들어갑니다 (검색엔진 색인 제외 `noindex`, 앱 오프라인 캐시에서도 제외).
+
+- 배포본: `https://samcho93.github.io/arHeritage/editor/`
+- 로컬: `http://localhost:5173/editor/`
+
+| 기능 | 설명 |
+|---|---|
+| 자료 찾기 | 유적 1,486곳·인물 14명을 이름·시군·id 로 검색, 종류별(국가유산·향토유산·역사관광지·인물)·「수정·추가·제외」 필터 |
+| 글 바꾸기 | 원문(국가유산청 설명·인물 소개)을 불러와 고치거나 사실·일화를 덧붙임. 원문과 같아지면 자동으로 「원문」 상태, 「원문으로 되돌리기」 |
+| RAG 에서 제외 | 대화에 섞이면 안 되는 자료를 검색 대상에서 뺌 |
+| 새 자료 추가 | 제목·내용을 쓰고 유적·인물에 **연결**(선택). 연결하면 그 인물·유적과 대화할 때 가중치를 받고 📚 근거 버튼이 그 유적 카드로 이어짐. 연결이 없으면 독립 자료(`u:<id>`, 근거에 이름만 표시) |
+| 조각 미리보기 | 저장될 글이 몇 개의 RAG 조각(최대 500자, 빈 줄 기준)으로 나뉘는지 바로 보여 줌 |
+| 대화로 확인 | 배포된 Worker `/rag` 에 질문해 답변·인용 근거·검색된 조각 확인 (반영 완료된 자료 기준) |
+| 초안 자동 저장 | 작업 내용은 브라우저에 초안으로 저장되어 새로 고쳐도 이어짐 |
+| GitHub 에 반영 | GitHub API 로 `public/data/rag-edits.json` 을 커밋 |
+| 파일로 주고받기 | 토큰이 없을 때 작업본을 `rag-edits.json` 으로 내려받기·불러오기 |
+
+**수정 파일 형식** — 원본 데이터는 그대로 두고 이 파일 하나에만 차이를 모읍니다.
+
+```json
+{
+  "updatedAt": "2026-09-27T09:00:00.000Z",
+  "overrides": { "13-0000570000000-31": "고친 남한산성 설명…", "fig:injo": "고친 인조 소개…" },
+  "hidden": ["hy-…"],
+  "extra": [{ "id": "muj5ptp9", "title": "수어장대 일화", "link": "13-0000570000000-31", "text": "…" }]
+}
+```
+
+**반영 흐름**
+
+```mermaid
+sequenceDiagram
+  participant E as 편집기 (/editor/)
+  participant G as GitHub API
+  participant A as Deploy to GitHub Pages
+  participant P as GitHub Pages
+  participant W as Worker /rag
+  E->>G: rag-edits.json 최신본 읽기 (sha)
+  E->>E: 내가 바꾼 항목만 최신본 위에 덮어쓰기 (다른 사람의 변경 유지)
+  E->>G: PUT contents (커밋)
+  G->>A: main push 로 배포 시작
+  A->>A: npm run data:rag (수정 반영해 색인 재생성, 버전 해시 갱신)
+  A->>P: 빌드 결과 게시 (약 2~3분)
+  W->>P: 1분마다 rag/meta.json 버전 확인
+  W->>W: 버전이 바뀌면 옛 색인 캐시 비우고 새 색인 사용
+```
+
+**GitHub 토큰 준비 (처음 한 번)** — 편집기의 「GitHub 설정」에 넣습니다.
+
+1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate new token
+2. Repository access: **Only select repositories** → `arHeritage`
+3. Permissions → Repository permissions → **Contents: Read and write** (그 밖의 권한은 필요 없음)
+4. 편집기에 붙여 넣기. 기본은 브라우저 탭을 닫으면 지워지는 세션 저장이며, 「기억하기」를 켜야 이 브라우저에 남습니다. 토큰은 GitHub API 로만 전송됩니다.
+
+> 편집기는 누구나 열 수 있지만 **반영은 저장소 쓰기 권한이 있는 토큰으로만** 됩니다. 토큰이 없는 사람은 「파일로 주고받기」로 작업본을 넘기면 됩니다.
+> 수정은 **RAG 서버** 대화 방식에만 쓰이며, 「기본」 방식과 유적 상세 카드의 설명은 원문 그대로입니다.
+
 ### 9.4 서버 실행 위치 고정
 
 Cloudflare Workers 는 사용자 가까운 데이터센터에서 실행되는데, 한국 사용자의 요청이 Claude API 미지원 지역(예: 홍콩)을 거치면 `403 Request not allowed` 가 납니다. `wrangler.toml` 의 `[placement] hostname = "api.anthropic.com"` 으로 Claude API 근처(미국)에서 실행되도록 고정했습니다.
@@ -597,7 +660,7 @@ historydam 의 `RecognizeHeritagePhotoUseCase` 와 같은 흐름입니다 (`scre
 
 | 워크플로 | 트리거 | 하는 일 |
 |---|---|---|
-| **Deploy to GitHub Pages** (`deploy.yml`) | `main` push, 수동, 데이터 갱신 완료 | `BASE_PATH=/<저장소명>/`, `VITE_NAVER_MAP_KEY_ID`, `VITE_API_BASE` 로 빌드 → Pages 배포 |
+| **Deploy to GitHub Pages** (`deploy.yml`) | `main` push(편집기 반영 포함), 수동, 데이터 갱신 완료 | `npm run data:rag` 로 RAG 색인 재생성 → `BASE_PATH=/<저장소명>/`, `VITE_NAVER_MAP_KEY_ID`, `VITE_API_BASE` 로 빌드 → Pages 배포 |
 | **Deploy API worker** (`deploy-worker.yml`) | `worker/**` 변경 push, 수동 | `cloudflare/wrangler-action` 으로 배포, `ANTHROPIC_API_KEY` 비밀값 전달, Azure 비밀값이 있으면 `wrangler secret put` |
 | **Update heritage data** (`update-data.yml`) | 매월 2일 03:00 KST, 수동 | 유적 데이터 재수집·RAG 색인 재생성 → 변경 시 커밋 → Pages 재배포 |
 
@@ -657,6 +720,7 @@ MSYS_NO_PATHCONV=1 BASE_PATH=/arHeritage/ npm run build
 | `ANTHROPIC_API_KEY` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Secret | GitHub Actions 배포용 | — |
+| RAG 편집기 GitHub 토큰 | fine-grained PAT (Contents 쓰기, 이 저장소만) | 편집 담당자 브라우저 (세션 또는 「기억하기」) | 저장소에 포함되지 않음 |
 | `.env.local`, `worker/.dev.vars` | 로컬 파일 | `.gitignore` 로 제외 | — |
 
 Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고, 요청 형식·길이를 zod 로 검증합니다.

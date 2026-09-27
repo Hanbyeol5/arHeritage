@@ -179,7 +179,8 @@ export const talkScreen: Screen = {
       const box = document.createElement('div');
       box.className = 'tk-src';
       box.innerHTML = `📚 근거 ${l.sources
-        .map((s) => (s.id ? `<button data-src="${esc(s.id)}" title="${esc(s.quote ?? '')}">${esc(s.name)}</button>` : `<q>${esc(s.quote ?? s.name)}</q>`))
+        // "u:" 는 RAG 자료 편집기로 추가한 자료(연결된 유적 없음) — 이름만 표시
+        .map((s) => (s.id?.startsWith('u:') ? `<span title="${esc(s.quote ?? '')}">${esc(s.name)}</span>` : s.id ? `<button data-src="${esc(s.id)}" title="${esc(s.quote ?? '')}">${esc(s.name)}</button>` : `<q>${esc(s.quote ?? s.name)}</q>`))
         .join('')}`;
       box.querySelectorAll<HTMLElement>('[data-src]').forEach((b) =>
         b.addEventListener('click', () => {

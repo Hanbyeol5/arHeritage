@@ -29,6 +29,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # RAG 자료 편집기가 커밋한 public/data/rag-edits.json 을 반영해 RAG 색인을 다시 만든다
+      - run: npm run data:rag
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/

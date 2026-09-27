@@ -209,6 +209,8 @@ async function chat(req: Request, env: Env, client: Anthropic) {
  * 색인 파일은 질문에 든 단어의 것만 읽어 무료 Worker CPU 한도 안에서 검색한다.
  */
 interface RagMeta {
+  /** 색인 버전 (내용 해시) — 색인·본문 파일 주소에 붙여 옛 캐시와 섞이지 않게 한다 */
+  v?: string;
   n: number;
   avgdl: number;
   group: number;
@@ -221,14 +223,37 @@ interface RagChunk {
 }
 const TOP_K = 6;
 
+/**
+ * 색인 메타는 1분마다 다시 확인한다 (RAG 자료 편집기로 고친 내용이 배포되면 isolate 를 다시 띄우지 않아도 반영).
+ * 버전이 바뀌면 옛 버전의 색인·본문 캐시를 비운다.
+ */
+let metaCache: { at: number; p: Promise<RagMeta> } | undefined;
+function ragMeta(base: string): Promise<RagMeta> {
+  if (metaCache && Date.now() - metaCache.at < 60_000) return metaCache.p;
+  const prev = metaCache?.p;
+  const p = fetch(`${base}meta.json?t=${Date.now()}`).then(async (r) => {
+    if (!r.ok) throw new HttpError(502, 'RAG 색인을 불러오지 못했습니다.');
+    const m = (await r.json()) as RagMeta;
+    const old = await prev?.catch(() => undefined);
+    if (old && old.v !== m.v) for (const k of cache.keys()) if (k.startsWith(base)) cache.delete(k);
+    return m;
+  });
+  // 실패하면 직전 메타로 계속 동작
+  const safe = prev ? p.catch(() => prev) : p;
+  metaCache = { at: Date.now(), p: safe };
+  safe.catch(() => (metaCache = undefined));
+  return safe;
+}
+
 async function retrieve(env: Env, query: string, boost: Map<string, number>, must: string[]): Promise<{ i: number; c: RagChunk }[]> {
   const base = `${env.SITE_BASE}data/rag/`;
-  const meta = await fetchJson<RagMeta>(`${base}meta.json`);
+  const meta = await ragMeta(base);
+  const ver = meta.v ? `?v=${meta.v}` : '';
   const qt = queryTerms(query);
   const bucketIds = [...new Set(qt.map(bucketOf))];
   const buckets = new Map(
     await Promise.all(
-      bucketIds.map(async (b) => [b, await fetchJson<Record<string, number[]>>(`${base}b/${b}.json`).catch(() => ({}) as Record<string, number[]>)] as const),
+      bucketIds.map(async (b) => [b, await fetchJson<Record<string, number[]>>(`${base}b/${b}.json${ver}`).catch(() => ({}) as Record<string, number[]>)] as const),
     ),
   );
   // BM25 (k1 = 1.2, b = 0.75)
@@ -253,7 +278,7 @@ async function retrieve(env: Env, query: string, boost: Map<string, number>, mus
 
   const groups = new Map(
     await Promise.all(
-      [...new Set(top.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json`)] as const),
+      [...new Set(top.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json${ver}`)] as const),
     ),
   );
   return top.map((i) => ({ i, c: groups.get(Math.floor(i / meta.group))![i % meta.group] }));

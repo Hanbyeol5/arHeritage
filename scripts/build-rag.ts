@@ -13,15 +13,15 @@
  *
  * 사용: npm run data:rag   (fetch-heritage → fetch-hyangto → import-tour 다음)
  */
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Figure, HeritageDetail, HeritageIndex } from '../src/types.ts';
-import { BUCKETS, GROUP, bucketOf, terms } from '../worker/src/ragText.ts';
+import { BUCKETS, GROUP, bucketOf, emptyEdits, splitChunks, terms, type RagEdits } from '../worker/src/ragText.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DATA = path.join(ROOT, 'public', 'data');
 const OUT = path.join(DATA, 'rag');
-const MAX = 500;
 
 interface Chunk {
   /** 출처: 유적 id 또는 "fig:<인물 id>" */
@@ -32,44 +32,42 @@ interface Chunk {
   x: string;
 }
 
-/** 문단 → 500자 이하 조각 (길면 문장 경계에서 자름) */
-function split(text: string): string[] {
-  const out: string[] = [];
-  // 국가유산청 설명에 섞인 HTML 태그 제거
-  const clean = text.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
-  for (const para of clean.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean)) {
-    if (para.length <= MAX) {
-      out.push(para);
-      continue;
-    }
-    let cur = '';
-    for (const s of para.split(/(?<=[.!?다])\s+/)) {
-      if (cur && cur.length + s.length + 1 > MAX) {
-        out.push(cur);
-        cur = s;
-      } else cur = cur ? `${cur} ${s}` : s;
-    }
-    if (cur) out.push(cur);
-  }
-  return out;
-}
-
 async function main() {
   const index = JSON.parse(await readFile(path.join(DATA, 'index.json'), 'utf8')) as HeritageIndex;
   const { figures } = JSON.parse(await readFile(path.join(DATA, 'figures.json'), 'utf8')) as { figures: Figure[] };
 
+  // RAG 자료 편집기에서 저장한 수정 사항 (없으면 원본 그대로)
+  const edits: RagEdits = await readFile(path.join(DATA, 'rag-edits.json'), 'utf8')
+    .then((t) => ({ ...emptyEdits(), ...(JSON.parse(t) as Partial<RagEdits>) }))
+    .catch(() => emptyEdits());
+  const hidden = new Set(edits.hidden);
+  const names = new Map<string, string>();
+
   const chunks: Chunk[] = [];
   for (const it of index.items) {
     const d = JSON.parse(await readFile(path.join(DATA, 'detail', `${it.id}.json`), 'utf8')) as HeritageDetail;
+    names.set(d.id, d.name);
+    if (hidden.has(d.id)) continue;
     const head = `${d.name} (${[d.designation, d.era, d.city].filter(Boolean).join(', ')})`;
-    const parts = split(d.description);
+    const parts = splitChunks(edits.overrides[d.id] ?? d.description);
     if (!parts.length) parts.push(`${d.name}은 ${d.city}에 있는 ${d.designation}입니다.`);
     // 조각마다 유적 이름을 붙여 "화성은 누가…" 같은 질문도 찾히게 한다
     for (const p of parts) chunks.push({ s: d.id, t: d.name, x: `${head}\n${p}` });
   }
   for (const f of figures) {
-    chunks.push({ s: `fig:${f.id}`, t: f.name, x: `${f.name}(${f.hanja}) — ${f.title}, ${f.years}\n${f.bio}` });
+    const s = `fig:${f.id}`;
+    names.set(s, f.name);
+    if (hidden.has(s)) continue;
+    const head = `${f.name}(${f.hanja}) — ${f.title}, ${f.years}`;
+    for (const p of splitChunks(edits.overrides[s] ?? f.bio)) chunks.push({ s, t: f.name, x: `${head}\n${p}` });
   }
+  // 추가 자료: 연결한 유적·인물이 있으면 그 출처로(대화 상대 가중치·근거 버튼이 이어짐), 없으면 "u:<id>"
+  for (const e of edits.extra) {
+    const s = e.link && names.has(e.link) ? e.link : `u:${e.id}`;
+    const t = e.link && names.has(e.link) ? names.get(e.link)! : e.title;
+    for (const p of splitChunks(e.text)) chunks.push({ s, t, x: `${e.title}\n${p}` });
+  }
+  const edited = Object.keys(edits.overrides).length + edits.hidden.length + edits.extra.length;
 
   // 역색인
   const postings = new Map<string, number[]>();
@@ -97,12 +95,14 @@ async function main() {
   for (let g = 0; g * GROUP < chunks.length; g++) {
     await writeFile(path.join(OUT, 'c', `${g}.json`), JSON.stringify(chunks.slice(g * GROUP, (g + 1) * GROUP)));
   }
+  // 색인 버전: 내용이 바뀔 때만 달라져 Worker 가 새 색인을 받아 가게 한다
+  const v = createHash('sha1').update(JSON.stringify(chunks)).digest('hex').slice(0, 12);
   const avgdl = lens.reduce((a, b) => a + b, 0) / lens.length;
   await writeFile(
     path.join(OUT, 'meta.json'),
-    JSON.stringify({ n: chunks.length, avgdl, buckets: BUCKETS, group: GROUP, docs: chunks.map((c, i) => [c.s, lens[i]]) }),
+    JSON.stringify({ v, n: chunks.length, avgdl, buckets: BUCKETS, group: GROUP, docs: chunks.map((c, i) => [c.s, lens[i]]) }),
   );
-  console.log(`RAG 색인: 조각 ${chunks.length}개 (유적 ${index.items.length}곳 + 인물 ${figures.length}명), 단어 ${postings.size}개, 평균 길이 ${avgdl.toFixed(0)}`);
+  console.log(`RAG 색인: 조각 ${chunks.length}개 (유적 ${index.items.length}곳 + 인물 ${figures.length}명), 단어 ${postings.size}개, 평균 길이 ${avgdl.toFixed(0)}, 사용자 수정 ${edited}건, 버전 ${v}`);
 }
 
 main().catch((e) => {

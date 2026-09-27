@@ -752,6 +752,7 @@ body.fullscreen .nav { display: none; }
   font-size: 11px; padding: 2px 8px; border-radius: 10px; text-shadow: none;
 }
 .tk-src q { font-style: italic; opacity: 0.85; }
+.tk-src span { border: 1px dashed rgba(212, 172, 99, 0.5); padding: 2px 8px; border-radius: 10px; color: #f3e2bd; }
 /* 설정: 인물 대화 방식 */
 .settings { margin: 0 16px 12px; background: var(--paper-card); border: 1px solid var(--line); border-radius: 16px; padding: 0 14px; }
 .settings summary { cursor: pointer; padding: 12px 0; font-size: 13px; color: var(--ink-soft); list-style: none; }

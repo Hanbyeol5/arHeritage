@@ -1,11 +1,18 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve } from 'node:path';
 
 // GitHub Pages 프로젝트 사이트는 /<저장소명>/ 경로에서 서비스되므로 배포 시 BASE_PATH 를 지정한다.
 const base = process.env.BASE_PATH ?? '/';
 
 export default defineConfig({
   base,
+  build: {
+    rollupOptions: {
+      // 웹앱 + RAG 자료 편집기(/editor/, 웹앱과 분리된 관리 도구)
+      input: { main: resolve(import.meta.dirname, 'index.html'), editor: resolve(import.meta.dirname, 'editor/index.html') },
+    },
+  },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
@@ -25,6 +32,9 @@ export default defineConfig({
         icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
       },
       workbox: {
+        // 편집기는 오프라인 캐시·앱 화면 대체에서 뺀다
+        globIgnores: ['editor/**', '**/editor-*.js', '**/editor-*.css'],
+        navigateFallbackDenylist: [/\/editor\//],
         globPatterns: ['**/*.{js,css,html,svg}', 'data/index.json', 'data/figures.json', 'figures/*'],
         runtimeCaching: [
           {

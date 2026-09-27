@@ -5,6 +5,45 @@ export const BUCKETS = 256;
 /** 조각 본문을 몇 개씩 한 파일에 묶을지 */
 export const GROUP = 32;
 
+/**
+ * 사용자 수정 자료 (public/data/rag-edits.json) — RAG 자료 편집기(/editor/)가 저장하고 색인 만들기가 반영한다.
+ * 원본 데이터(국가유산청·향토유산·인물)는 그대로 두고, 이 파일만으로 RAG 에 들어갈 글을 바꾼다.
+ */
+export interface RagEdits {
+  updatedAt?: string;
+  /** 출처 id(유적 id 또는 "fig:<인물 id>") → 원문 대신 쓸 글 (인물은 소개 글) */
+  overrides: Record<string, string>;
+  /** RAG 에서 뺄 출처 id */
+  hidden: string[];
+  /** 새로 추가한 자료. link 가 있으면 그 유적·인물의 자료로 취급(가중치·근거 연결) */
+  extra: { id: string; title: string; link?: string; text: string }[];
+}
+export const emptyEdits = (): RagEdits => ({ overrides: {}, hidden: [], extra: [] });
+
+/** 조각 하나의 최대 길이 */
+export const MAX_CHUNK = 500;
+
+/** 설명문 → 500자 이하 조각 (HTML 태그 제거, 문단 단위, 길면 문장 경계에서 자름) */
+export function splitChunks(text: string): string[] {
+  const out: string[] = [];
+  const clean = text.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ');
+  for (const para of clean.split(/\n\s*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean)) {
+    if (para.length <= MAX_CHUNK) {
+      out.push(para);
+      continue;
+    }
+    let cur = '';
+    for (const s of para.split(/(?<=[.!?다])\s+/)) {
+      if (cur && cur.length + s.length + 1 > MAX_CHUNK) {
+        out.push(cur);
+        cur = s;
+      } else cur = cur ? `${cur} ${s}` : s;
+    }
+    if (cur) out.push(cur);
+  }
+  return out;
+}
+
 /** 한글은 2글자 단위(바이그램), 영문·숫자는 단어 단위로 자른다. 한 글자 단어는 그대로 둔다 */
 export function terms(text: string): string[] {
   const out: string[] = [];
