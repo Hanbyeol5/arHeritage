@@ -19,7 +19,7 @@
 6. [웹앱 구조](#6-웹앱-구조)
 7. [위치 기반 AR](#7-위치-기반-ar)
 8. [지도 (네이버 지도)](#8-지도-네이버-지도)
-9. [역사 인물·해설사 대화 (경량 RAG 포함)](#9-역사-인물해설사-대화)
+9. [역사 인물·해설사 대화 (RAG 서버 선택 포함)](#9-역사-인물해설사-대화)
 10. [음성 (말하기·듣기)](#10-음성-말하기듣기)
 11. [유물·건물 인식 카메라](#11-유물건물-인식-카메라)
 12. [인물 초상과 AR 컷아웃](#12-인물-초상과-ar-컷아웃)
@@ -43,6 +43,7 @@
 | **AR 카메라** | 후면 카메라에 반경 1·3·5·10km 안의 유적을 라벨로 표시, 겹치면 대표 유적만 + `+N`, 누르면 안내·길찾기·대화 |
 | **AR 방향 안내** | 목표 유적(또는 인물이 있는 유적)으로 화살표와 남은 거리 안내 |
 | **인물·해설사 대화** | 후면 카메라 위에 배경을 제거한 인물이 서 있고, 라이브 방송 자막처럼 대화가 흐름. 내 음성 → 글자, 인물의 말 → 글자 + 음성 |
+| **대화 방식 선택 (RAG)** | 메뉴 설정에서 기본 / **RAG 서버(역사담 내장: 질문마다 유적 자료 검색 + 근거 표시)** / 외부 RAG 서버(historydam 호환) 선택 |
 | **지도** | 네이버 지도에 인물 핑·유적 핀·내 위치, 「○○까지 걷기 · 도보 N분」, [찾기] → AR |
 | **유물·건물 인식** | 촬영 → 주변 국가유산 후보 + Claude 비전 판별 → 국가유산청 공식 설명으로 보강, 후보로 보정, 음성 해설 |
 | **모든 인물** | 가나다순(초성 색인)·주변 순, 검색, 미발견 인물은 잠긴 메달 |
@@ -74,6 +75,7 @@ flowchart LR
 
   subgraph CF["Cloudflare Workers (yeoksadam-api)"]
     CHAT["/chat 인물·해설사 대화"]
+    RAG["/rag 검색 증강 대화"]
     VIS["/vision 유물 판별"]
     TTS["/tts 인물 목소리"]
   end
@@ -89,6 +91,9 @@ flowchart LR
   UI -- 지도 타일 --> NAVER
   UI -- 대화·인식·음성 --> CF
   CHAT --> CLAUDE
+  RAG --> CLAUDE
+  RAG -- "RAG 색인 rag/*.json" --> PAGES
+  UI -. "외부 RAG (선택)" .-> EXT["외부 RAG 서버<br/>historydam backend 호환"]
   VIS --> CLAUDE
   TTS --> AZURE
   CHAT -- 인물·유적 JSON --> PAGES
@@ -134,6 +139,9 @@ flowchart TD
   C["data/경기도역사관광지현황.json"] -->|import-tour.ts<br/>중복 대조, 생가만 추가| I
   F["public/data/figures.json<br/>(수작업 인물 14명)"] --> APP["웹앱·Worker"]
   I --> APP
+  I -->|build-rag.ts| RG["public/data/rag/<br/>BM25 색인 256 + 본문 71 + meta"]
+  F -->|build-rag.ts| RG
+  RG --> APP
 ```
 
 ---
@@ -157,6 +165,7 @@ flowchart TD
 | 대화·인식 AI | **Anthropic Claude API** (`claude-opus-5`), `@anthropic-ai/sdk` | 인물 페르소나 대화, 유물 사진 판별 |
 | 서버 | **Cloudflare Workers** + **wrangler** | API 키 보관·중계 (`worker/src/index.ts`) |
 | 입력 검증 | **zod** | Worker 요청 검증, 비전 구조화 출력 스키마 |
+| 검색 (RAG) | **BM25** (한글 바이그램 역색인, 정적 분할 파일) + Claude **citations** | `scripts/build-rag.ts`, `worker/src/ragText.ts`, Worker `/rag` |
 | 데이터 수집 | Node.js 24 + **tsx**, **fast-xml-parser** | `scripts/*.ts` |
 | 호스팅 | **GitHub Pages** | 정적 웹앱·데이터 JSON |
 | CI/CD | **GitHub Actions** | Pages 배포, Worker 배포, 월간 데이터 갱신 |
@@ -176,11 +185,13 @@ arHeritige/
 │  └─ data/
 │     ├─ index.json           지도·AR용 유적 목록(1,486곳, 경량)
 │     ├─ detail/<id>.json     유적 상세(설명·사진·주소·전화)
-│     └─ figures.json         역사 인물(초상·목소리·관련 유적)
+│     ├─ figures.json         역사 인물(초상·목소리·관련 유적)
+│     └─ rag/                 RAG 검색 색인 (meta.json, b/0~255.json, c/0~70.json)
 ├─ scripts/                   데이터 수집 (빌드 시점)
 │  ├─ fetch-heritage.ts       국가유산청 오픈API → index/detail
 │  ├─ fetch-hyangto.ts        공공데이터포털 향토유산 → index/detail(hy-*)
-│  └─ import-tour.ts          경기도 역사관광지 → 중복 대조·생가 추가(tr-*)
+│  ├─ import-tour.ts          경기도 역사관광지 → 중복 대조·생가 추가(tr-*)
+│  └─ build-rag.ts            유적 설명·인물 소개 → RAG 색인(public/data/rag)
 ├─ data/경기도역사관광지현황.json   역사관광지 원본(경기데이터드림)
 ├─ src/
 │  ├─ main.ts                 하단 5탭, 라우팅, 시작 화면, 전체 화면·오디오 잠금 해제
@@ -193,19 +204,20 @@ arHeritige/
 │  ├─ arEngine.ts             AR 라벨 배치·겹침 정리·목표 방향
 │  ├─ naverMap.ts             네이버 지도 래퍼(한 번 생성해 재사용)
 │  ├─ speech.ts               음성 출력(서버→기기)·음성 인식, 자동 재생 대응
-│  ├─ conversation.ts         대화 세션(인물별 기억)·Worker 호출
+│  ├─ conversation.ts         대화 세션(인물별 기억)·대화 방식(기본/RAG/외부 RAG)별 호출
 │  ├─ vision.ts               사진 캡처·AI 판별·위치 기반 대체
 │  ├─ guide.ts                인물이 없는 유적의 해설사
 │  ├─ heritageSheet.ts        유적 상세 카드, 바텀 시트 공용
 │  ├─ figureSheet.ts          인물 선택(딤 시트)·관련 유적
 │  ├─ siteActions.ts          AR 라벨 동작 카드·겹친 유적 목록·네이버 길찾기
-│  ├─ store.ts                도감·알림·닉네임 (localStorage)
+│  ├─ store.ts                도감·알림·닉네임·대화 방식 설정 (localStorage)
 │  ├─ types.ts                데이터 타입
 │  ├─ style.css               단청·한지 테마 전체 스타일
 │  ├─ screens/                home · map · ar · talk · camera · qa · figures · profile · notifications
 │  └─ ui/                     icons · medal(초상 메달) · chrome(상단바) · dom · josa(조사) · immersive
 ├─ worker/                    Cloudflare Worker (대화·인식·음성 API)
-│  ├─ src/index.ts
+│  ├─ src/index.ts            /chat · /rag · /vision · /tts
+│  ├─ src/ragText.ts          RAG 토큰화·색인 파일 규칙 (색인 생성과 공용)
 │  └─ wrangler.toml           vars, workers.dev, 실행 위치 고정(placement)
 └─ .github/workflows/
    ├─ deploy.yml              웹앱 빌드 → GitHub Pages
@@ -280,7 +292,7 @@ npm run data:tour       # data:hyangto 다음에
 
 ### 5.5 월간 자동 갱신 — `.github/workflows/update-data.yml`
 
-매월 2일 03:00(KST)에 `data:fetch --refresh → data:hyangto → data:tour` 를 실행하고, 바뀐 내용이 있으면 커밋합니다. 커밋 뒤 `deploy.yml` 이 `workflow_run` 으로 이어서 재배포합니다 (`GITHUB_TOKEN` 커밋은 push 트리거를 일으키지 않기 때문).
+매월 2일 03:00(KST)에 `data:fetch --refresh → data:hyangto → data:tour → data:rag` 를 실행하고, 바뀐 내용이 있으면 커밋합니다. 커밋 뒤 `deploy.yml` 이 `workflow_run` 으로 이어서 재배포합니다 (`GITHUB_TOKEN` 커밋은 push 트리거를 일으키지 않기 때문).
 
 ---
 
@@ -380,33 +392,112 @@ GPS ±5~20m, 나침반 ±10~20° 오차가 있어 **건물 윤곽에 딱 맞추�
 | 거절 대응 | `betas: ["server-side-fallback-2026-07-01"]`, `fallbacks: "default"` — 정책상 거절되면 서버가 대체 모델로 다시 답함 |
 | 응답 | `{ text }`, 오류 시 `{ error, upstream: 상태코드 }` |
 
-### 9.3 근거 자료 주입 방식 (경량 RAG)
+### 9.3 대화 방식 선택 — 기본 · RAG 서버 · 외부 RAG 서버
 
-인물·해설사의 답변은 **공식 설명문을 근거로 생성**합니다. 다만 벡터 검색을 쓰는 일반적인 RAG 가 아니라, 대화 상대에 연결된 문서를 통째로 넣는 **고정 컨텍스트 주입(경량 RAG)** 방식입니다.
+**메뉴(내 프로필) → ⚙ 설정 · 인물 대화 방식** 에서 고릅니다. 선택은 기기(`localStorage`)에 저장되고, RAG 를 쓰는 동안 대화 화면 상단에 `RAG` / `외부 RAG` 표시가 붙습니다.
+
+| 방식 | 호출 | 근거 자료를 고르는 법 | 출처 표시 |
+|---|---|---|---|
+| **기본** | Worker `POST /chat` | 대화 상대에 **연결된 유적 설명을 통째로** 시스템 프롬프트에 주입 (고정 컨텍스트) | 없음 |
+| **RAG 서버 (역사담 내장)** | Worker `POST /rag` | **질문마다** 1,486곳 설명·인물 소개 2,259조각에서 BM25 로 **검색**해 상위 6조각을 문서로 주입 | 답변 아래 `📚 근거` (누르면 유적 카드) |
+| **외부 RAG 서버** | 입력한 주소의 `POST /chat` | 외부 서버가 결정 (historydam backend 호환) | `referenced_data` 를 `📚 근거` 로 표시 |
 
 ```mermaid
 flowchart LR
-  Q["방문객 질문"] --> W["Worker /chat"]
-  F["figures.json<br/>인물 → 관련 유적 id"] -->|인물이면| R["관련 유적 detail/*.json<br/>국가유산청·향토유산 설명문"]
-  G["guide:&lt;유적 id&gt;"] -->|해설사면| R
-  R -->|"사료로 시스템 프롬프트에 삽입<br/>(인물: 유적당 1,800자 / 해설사: 3,000자)"| P["시스템 프롬프트<br/>+ 근거 규칙"]
-  W --> P --> C["Claude claude-opus-5"] --> A["1인칭 답변"]
+  Q["방문객 질문"] --> M{"대화 방식"}
+  M -->|기본| C1["Worker /chat<br/>연결 유적 설명 통째로 주입"]
+  M -->|RAG 서버| R1["Worker /rag"]
+  M -->|외부 RAG| X1["외부 서버 /chat<br/>(historydam 호환)"]
+  R1 --> S["질문 단어 → 색인 파일 b/*.json 만 읽기<br/>BM25 점수 + 대화 상대 가중치"]
+  S --> K["상위 6조각 c/*.json"]
+  K --> D["document 블록 + citations"]
+  C1 --> CL["Claude claude-opus-5"]
+  D --> CL
+  CL --> A["1인칭 답변 (+ 인용 → 근거 유적)"]
+  X1 --> A2["answer + referenced_data"]
 ```
 
-| 단계 | 일반적인 RAG | 이 프로젝트 |
+#### 9.3.1 내장 RAG 서버 — 색인 만들기 (`scripts/build-rag.ts`)
+
+| 단계 | 내용 |
+|---|---|
+| ① 조각 나누기 | 유적 상세 설명의 HTML 태그(`<br>` 등) 제거 → 문단 단위, 500자를 넘으면 문장 경계에서 자름. 조각마다 `유적명 (지정, 시대, 시군)` 머리말을 붙여 이름으로도 찾히게 함. 인물 소개도 조각으로 추가 (`fig:<인물 id>`) |
+| ② 토큰화 (`worker/src/ragText.ts`) | 한글은 **2글자 단위(바이그램)**, 영문·숫자는 단어 단위. 조사·어미가 붙어도 어간 바이그램이 겹쳐 형태소 분석기 없이 검색됨 |
+| ③ 역색인 | `단어 → [문서빈도, 조각번호, 빈도, …]` 를 FNV-1a 해시로 **256개 파일**(`rag/b/<n>.json`, 평균 7KB)에 분산 |
+| ④ 본문 | 조각 본문을 32개씩 묶어 `rag/c/<n>.json` (71개 파일) |
+| ⑤ 메타 | `rag/meta.json` — 조각 수, 평균 길이, 조각별 `[출처 id, 길이]` |
+
+현재 규모: 조각 **2,259개**, 단어 **25,201개**, 전체 약 4MB. 월간 데이터 갱신 때 `npm run data:rag` 로 다시 만듭니다.
+
+```bash
+npm run data:rag      # data:fetch → data:hyangto → data:tour 다음에
+```
+
+#### 9.3.2 내장 RAG 서버 — 검색과 답변 (`worker/src/index.ts` `POST /rag`)
+
+1. **검색어**: 이번 질문 + 바로 앞 질문(「그분은…」처럼 이어지는 질문 대비). 「어떻게·무엇·습니다·선생」 같은 뜻 없는 바이그램은 질문에서만 제외.
+2. **색인 읽기**: 검색어가 속한 색인 파일만 GitHub Pages 에서 병렬로 가져옵니다 (보통 10~20개, 수십 KB). Worker isolate 안에서 캐시. 전체 색인을 읽지 않으므로 **무료 Worker 의 요청당 CPU 10ms 한도** 안에서 동작합니다.
+3. **BM25 점수** (k1 = 1.2, b = 0.75) 후 **가중치**: 인물과 연결된 유적 ×1.6, 인물 자신의 소개 ×2, 해설사가 안내하는 유적 ×2. 인물 소개(또는 안내 유적의 첫 조각)는 항상 포함.
+4. 상위 **6조각**을 Claude 의 `document` 블록(`citations: { enabled: true }`)으로 질문 앞에 넣습니다.
+5. 시스템 프롬프트: 인물 말씨 + 「검색된 문서에 적힌 사실에만 근거, 문서에 없으면 모른다고, 문서 제목이나 '자료에 따르면'은 소리 내어 말하지 않기」.
+6. 응답의 인용(`char_location.document_index`)을 조각 → 유적으로 되짚어 `sources: [{ id, name, quote }]` 로 돌려줍니다. 인용되지 않은 검색 결과는 출처로 표시하지 않습니다.
+
+```http
+POST /rag
+{ "figureId": "injo", "lines": [{ "mine": true, "text": "남한산성에서 왜 항복하셨습니까?" }] }
+
+→ { "text": "…강화도가 함락되고 성 안의 양식마저 바닥나니…",
+    "sources": [{ "id": "13-0000570000000-31", "name": "남한산성", "quote": "인조 14년(1636) 병자호란 때…" }],
+    "retrieved": ["인조", "남한산성", "남한산성 행궁", …] }
+```
+
+**검색 예시 (배포된 서버의 실제 결과)**
+
+| 질문 (대화 상대) | 검색 상위 | 인용된 근거 |
 |---|---|---|
-| 검색 (Retrieval) | 질문을 임베딩해 벡터 DB 에서 유사 문서 검색 | **질문과 무관하게** 대화 상대에 연결된 문서를 가져옴 — 인물은 `figures.json` 의 `sites[]` → 각 유적 상세, 해설사는 그 유적 상세 |
-| 증강 (Augmentation) | 검색된 문서를 프롬프트에 삽입 | 동일 — `[사료 — 국가유산청 설명]` 블록으로 삽입, 프롬프트 캐시(`cache_control`) 적용 |
-| 생성 (Generation) | 문서 근거로 답변 | 동일 — 「사료와 널리 알려진 역사에 근거, 불확실하면 지어내지 말고 솔직히」 규칙 |
-| 출처 표시 (Citation) | 답변별 근거 문서 표시 | **없음** |
+| 거중기는 누가 만들었습니까? (채제공) | 정약용 소개, 정약용선생묘, 수원 화성 | 수원 화성, 정약용 |
+| 남한산성에서 왜 항복하셨습니까? (인조) | 인조 소개, 남한산성, 남한산성 행궁 | 남한산성 |
+| 행주대첩은 어떻게 이겼나요? (해설사) | 고양 행주산성, 권율장군묘, 행주서원지 | 권율장군묘, 고양 행주산성 |
 
-**이 방식을 택한 이유**: 인물 한 명에 연결된 자료가 유적 1~5곳 분량(수천 자)으로 작아서 검색 없이 전부 넣어도 컨텍스트에 여유가 있고, 벡터 DB·임베딩 서버 없이 정적 JSON 과 Worker 만으로 동작합니다. 같은 인물의 시스템 프롬프트는 대화 내내 같아서 프롬프트 캐시가 잘 맞습니다.
+#### 9.3.3 외부 RAG 서버 (historydam backend 호환)
 
-**한계와 확장 방향**
+[historydam](https://github.com/Hanbyeol5/historydam) 의 `backend/main.py`(FastAPI + ChromaDB + Gemini, 세종대왕 자료)와 같은 계약으로 호출합니다.
 
-- 연결되지 않은 유적의 내용은 모델의 일반 지식에 의존합니다 (예: 정조에게 수원 밖 유적을 물을 때).
-- 답변에 근거 출처가 표시되지 않습니다 (historydam 설계의 「RAG citation 우선」 미구현).
-- 확장하려면: 1,486곳 설명문을 문단 단위로 나눠 임베딩 → Cloudflare Vectorize 등에 저장 → 질문으로 상위 k개 검색해 추가 삽입, 그리고 Claude 의 문서 인용(`citations`) 기능으로 답변마다 근거 유적을 표시하는 방식이 가능합니다.
+```http
+POST {입력한 주소}/chat
+{ "question": "훈민정음은 왜 만드셨습니까?", "figureId": "sejong", "figureName": "세종대왕" }
+
+→ { "question": "…", "answer": "…", "referenced_data": ["…", "…"] }
+```
+
+- `figureId`·`figureName` 은 여러 인물을 지원하도록 덧붙인 필드이며, historydam 서버는 무시해도 됩니다.
+- 설정 화면의 **연결 확인** 버튼으로 `{"question":"안녕하세요"}` 를 보내 응답 형식을 검사합니다.
+- **웹앱에서 부르려면 서버에 두 가지가 필요합니다.**
+  1. **HTTPS 주소**: 웹앱이 HTTPS 라서 `http://` 서버(예: `http://10.0.2.2:8000`, 로컬 PC)는 브라우저가 혼합 콘텐츠로 차단합니다. 클라우드에 배포하거나 `cloudflared tunnel` 등으로 HTTPS 를 붙여야 합니다.
+  2. **CORS 허용**: FastAPI 에 다음을 추가합니다.
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://samcho93.github.io", "http://localhost:5173"],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
+)
+```
+
+#### 9.3.4 historydam RAG 서버와의 비교
+
+| 항목 | historydam backend | 역사담 웹앱 내장 RAG |
+|---|---|---|
+| 서버 | Python FastAPI (로컬 실행) | Cloudflare Workers (배포됨) |
+| 저장소 | ChromaDB 메모리 벡터 DB (시작 때마다 적재) | GitHub Pages 정적 파일 (빌드 때 생성) |
+| 검색 | 임베딩 유사도 (Chroma 기본 모델) | BM25 키워드 (한글 바이그램) |
+| 자료 | `sejong.txt` 5문장, 세종대왕 1명 | 유적 1,486곳 설명 + 인물 14명 소개 (2,259조각) |
+| 생성 | Gemini, 참고 문장 2개 | Claude, 참고 조각 6개, 대화 이력 반영 |
+| 출처 | 검색한 문장 목록 | Claude 인용으로 **답변이 실제로 근거로 쓴 유적**만 |
+
+BM25 는 표현이 다른 질문(동의어·의역)에 약합니다. 의미 검색이 필요하면 조각을 Workers AI 다국어 임베딩(`@cf/baai/bge-m3`)으로 벡터화해 Cloudflare Vectorize 에 넣고 BM25 와 섞는 하이브리드 검색으로 확장할 수 있습니다 (Cloudflare API 토큰에 Vectorize·Workers AI 권한 추가 필요).
 
 ### 9.4 서버 실행 위치 고정
 
@@ -486,6 +577,7 @@ historydam 의 `RecognizeHeritagePhotoUseCase` 와 같은 흐름입니다 (`scre
 | 인물 | 인물 시트를 열었을 때(= 만남), 관련 유적 300m 안 |
 | 유물 | 카메라 인식 결과가 유물·초상화일 때 |
 | 알림 | 유적 도착·인물 만남 (최근 50건) |
+| 설정 | 인물 대화 방식(`basic`·`rag`·`custom`), 외부 RAG 서버 주소 |
 
 서버에 저장하지 않으므로 기기를 바꾸면 기록이 이어지지 않습니다.
 
@@ -507,7 +599,7 @@ historydam 의 `RecognizeHeritagePhotoUseCase` 와 같은 흐름입니다 (`scre
 |---|---|---|
 | **Deploy to GitHub Pages** (`deploy.yml`) | `main` push, 수동, 데이터 갱신 완료 | `BASE_PATH=/<저장소명>/`, `VITE_NAVER_MAP_KEY_ID`, `VITE_API_BASE` 로 빌드 → Pages 배포 |
 | **Deploy API worker** (`deploy-worker.yml`) | `worker/**` 변경 push, 수동 | `cloudflare/wrangler-action` 으로 배포, `ANTHROPIC_API_KEY` 비밀값 전달, Azure 비밀값이 있으면 `wrangler secret put` |
-| **Update heritage data** (`update-data.yml`) | 매월 2일 03:00 KST, 수동 | 유적 데이터 재수집 → 변경 시 커밋 → Pages 재배포 |
+| **Update heritage data** (`update-data.yml`) | 매월 2일 03:00 KST, 수동 | 유적 데이터 재수집·RAG 색인 재생성 → 변경 시 커밋 → Pages 재배포 |
 
 코드를 push 하면 해당 워크플로가 자동으로 돌지만, **Variables·Secrets 만 바꿨을 때는 직접 Run workflow** 해야 반영됩니다.
 
@@ -546,7 +638,7 @@ npm run typecheck
 
 ```bash
 # 3) 데이터 다시 받기
-npm run data:fetch -- --refresh && npm run data:hyangto && npm run data:tour
+npm run data:fetch -- --refresh && npm run data:hyangto && npm run data:tour && npm run data:rag
 ```
 
 ```bash
@@ -578,7 +670,7 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 | GitHub Pages / Actions | 무료 (Pro 계정) | |
 | Cloudflare Workers | 무료 (일 10만 요청) | |
 | 네이버 지도 Dynamic Map | 무료 제공량 내 | NCP 콘솔에서 한도 알림 권장 |
-| **Claude API** | **대화 1회·사진 인식 1회마다 과금** (`claude-opus-5`) | Anthropic Console 에서 사용 한도 설정 권장 |
+| **Claude API** | **대화 1회·사진 인식 1회마다 과금** (`claude-opus-5`) | RAG 모드는 검색 조각 6개를 매번 넣어 기본 모드와 비슷하거나 약간 많음. Anthropic Console 에서 사용 한도 설정 권장 |
 | Azure Speech | 무료 F0: 신경망 음성 월 50만 자 (답변 150~200자 → 월 약 2,500~3,000회) | 초과·장애 시 기기 음성으로 대체 |
 | 공공데이터 | 무료 | |
 
@@ -592,6 +684,7 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 - **도감**: 기기 내 저장이라 기기를 바꾸면 이어지지 않습니다.
 - **알림**: 웹앱은 앱이 닫혀 있을 때 위치를 추적할 수 없어, 앱이 열려 있는 동안만 도착 알림이 됩니다.
 - **요청 제한**: Worker 에 요청 횟수 제한이 없으므로 공개 운영 전 추가를 권장합니다.
+- **RAG 검색**: BM25 키워드 검색이라 표현이 전혀 다른 질문(동의어·의역)은 관련 자료를 놓칠 수 있습니다. 외부 RAG 서버는 HTTPS·CORS 가 준비된 서버만 연결됩니다.
 - **초상**: 효종·인조·세조는 아직 초상이 없어 인장·실루엣으로 표시됩니다.
 
 ---
