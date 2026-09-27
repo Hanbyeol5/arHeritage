@@ -49,6 +49,7 @@ class HeritageMap {
   private me?: any;
   private figureMarkers = new Map<string, any>();
   private siteMarkers: any[] = [];
+  private circle?: any;
   private initPromise?: Promise<void>;
 
   init(): Promise<void> {
@@ -67,6 +68,10 @@ class HeritageMap {
         mapDataControl: false,
         logoControlOptions: { position: maps.Position.BOTTOM_LEFT },
       });
+      // 넓게 볼 때(반경 5·10km)는 일반 유적 이름표를 숨겨 겹침을 줄인다 — 확대하면 다시 보인다
+      const zoomClass = () => this.el.classList.toggle('far', this.map.getZoom() < 13);
+      maps.Event.addListener(this.map, 'zoom_changed', zoomClass);
+      zoomClass();
     });
     return this.initPromise;
   }
@@ -136,23 +141,60 @@ class HeritageMap {
     });
   }
 
+  /** 내 위치를 중심으로 한 표시 반경 — 반투명 영역 */
+  setRadius(pos: Position, meters: number) {
+    if (!this.map) return;
+    const { maps } = this;
+    const center = new maps.LatLng(pos.lat, pos.lng);
+    if (!this.circle) {
+      this.circle = new maps.Circle({
+        map: this.map,
+        center,
+        radius: meters,
+        fillColor: '#b23a32',
+        fillOpacity: 0.08,
+        strokeColor: '#b23a32',
+        strokeOpacity: 0.55,
+        strokeWeight: 1.5,
+        strokeStyle: 'shortdash',
+        clickable: false,
+        zIndex: 1,
+      });
+    } else {
+      this.circle.setCenter(center);
+      this.circle.setRadius(meters);
+    }
+  }
+
+  /** 반경 원이 화면에 꽉 차게 */
+  fitRadius(pos: Position, meters: number) {
+    const dLat = meters / 111_320;
+    const dLng = meters / (111_320 * Math.cos((pos.lat * Math.PI) / 180));
+    this.fitPoints(
+      [
+        { lat: pos.lat - dLat, lng: pos.lng - dLng },
+        { lat: pos.lat + dLat, lng: pos.lng + dLng },
+      ],
+      0,
+    );
+  }
+
   panTo(lat: number, lng: number) {
     this.map?.panTo(new this.maps.LatLng(lat, lng));
   }
 
   /** 두 지점이 모두 보이도록 (카드·상단 안내 영역 여백 포함) */
-  fitPoints(points: { lat: number; lng: number }[]) {
+  fitPoints(points: { lat: number; lng: number }[], pad = 0.0015) {
     if (!this.map || !points.length) return;
     const { maps } = this;
     const lats = points.map((p) => p.lat);
     const lngs = points.map((p) => p.lng);
-    const pad = 0.0015;
     this.map.fitBounds(
       new maps.LatLngBounds(
         new maps.LatLng(Math.min(...lats) - pad, Math.min(...lngs) - pad),
         new maps.LatLng(Math.max(...lats) + pad, Math.max(...lngs) + pad),
       ),
-      { top: 90, right: 30, bottom: 130, left: 30 },
+      { top: 120, right: 20, bottom: 110, left: 20 },
     );
   }
 }

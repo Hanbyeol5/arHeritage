@@ -8,18 +8,8 @@ import { esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { immersive } from '../ui/immersive.ts';
 import { medal } from '../ui/medal.ts';
+import { RADII, saveRadius, savedRadius } from '../radius.ts';
 import { onPosition } from './home.ts';
-
-const RADII = [1000, 3000, 5000, 10000];
-const RADIUS_KEY = 'yeoksadam:ar-radius';
-function savedRadius(): number {
-  try {
-    const r = Number(localStorage.getItem(RADIUS_KEY));
-    return RADII.includes(r) ? r : 10000;
-  } catch {
-    return 10000;
-  }
-}
 
 /**
  * AR 탐색 — 카메라로 비추면 반경 안의 유적지를 표시하고, 누르면 안내·길찾기·대화.
@@ -102,11 +92,7 @@ export const arScreen: Screen = {
       b.addEventListener('click', () => {
         radius = Number(b.dataset.r);
         engine.radius = radius;
-        try {
-          localStorage.setItem(RADIUS_KEY, String(radius));
-        } catch {
-          /* 저장 불가 환경 */
-        }
+        saveRadius(radius);
         root.querySelectorAll('.ar-radius button').forEach((x) => x.classList.toggle('on', x === b));
         update();
       }),

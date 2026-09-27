@@ -6,10 +6,11 @@ import { go, type Screen } from '../router.ts';
 import { esc, walkMinutes } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
 import { medal } from '../ui/medal.ts';
+import { RADII, radiusLabel, saveRadius, savedRadius } from '../radius.ts';
 import { onPosition } from './home.ts';
 
-/** 지도에 함께 표시할 일반 유적지 반경 */
-const SITE_RADIUS = 3000;
+/** 반경 안의 일반 유적지 핀은 가까운 순으로 이만큼만 (10km 는 수백 곳이라 지도가 느려진다) */
+const SITE_PIN_MAX = 150;
 let activeId: string | undefined;
 
 /** 4. 지도 — 인물 핑 · AR 길찾기 */
@@ -19,6 +20,9 @@ export const mapScreen: Screen = {
     root.innerHTML = `<div class="scr map-scr">
       <div class="map">
         <div class="route-head" hidden></div>
+        <div class="map-radius" role="group" aria-label="표시 반경" hidden>${RADII.map(
+          (r) => `<button data-r="${r}">${radiusLabel(r)}</button>`,
+        ).join('')}</div>
         <div class="map-notice" hidden></div>
         <div class="card" hidden></div>
       </div>
@@ -30,6 +34,13 @@ export const mapScreen: Screen = {
     const qSite = query.get('site');
     if (qFig && app.figureById.has(qFig)) activeId = qFig;
     activeId ??= app.nearbyFigures()[0]?.figure.id;
+
+    // 표시 반경 (AR 화면과 같은 값)
+    let radius = savedRadius();
+    const radiusBox = root.querySelector<HTMLElement>('.map-radius')!;
+    const markRadius = () =>
+      radiusBox.querySelectorAll<HTMLElement>('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.r) === radius));
+    markRadius();
 
     const renderCard = () => {
       const f = activeId ? app.figureById.get(activeId) : undefined;
@@ -73,10 +84,14 @@ export const mapScreen: Screen = {
       );
       const figureSites = new Set(app.figures.flatMap((f) => f.sites.map((s) => s.id)));
       heritageMap.setSites(
-        app.nearbySites(SITE_RADIUS).filter((s) => !figureSites.has(s.id)),
+        app.nearbySites(radius).filter((s) => !figureSites.has(s.id)).slice(0, SITE_PIN_MAX),
         openHeritage,
       );
-      if (app.pos) heritageMap.setMe(app.pos);
+      if (app.pos) {
+        heritageMap.setMe(app.pos);
+        heritageMap.setRadius(app.pos, radius);
+      }
+      radiusBox.hidden = !app.pos;
     };
 
     let first = true;
@@ -93,6 +108,17 @@ export const mapScreen: Screen = {
         }
       }
     };
+
+    // 반경을 바꾸면 원이 화면에 꽉 차게 맞춘다 (AR 화면의 반경도 같이 바뀐다)
+    radiusBox.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('[data-r]');
+      if (!b) return;
+      radius = Number(b.dataset.r);
+      saveRadius(radius);
+      markRadius();
+      renderPins();
+      if (app.pos) heritageMap.fitRadius(app.pos, radius);
+    });
 
     heritageMap
       .init()

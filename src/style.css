@@ -290,6 +290,14 @@ body.fullscreen .nav { display: none; }
   margin-left: auto; background: var(--cinnabar); color: #fff; font-weight: 700; font-size: 11px; border: 0;
   padding: 5px 10px; border-radius: 9px; font-family: var(--serif);
 }
+/* 표시 반경 선택 (지도 위 반투명 원과 연동) */
+.map-radius {
+  position: absolute; top: calc(70px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 8;
+  display: flex; gap: 3px; padding: 3px; border-radius: 20px; background: rgba(251, 245, 234, 0.92);
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.3);
+}
+.map-radius button { border: 0; background: none; color: var(--ink-soft); font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 16px; }
+.map-radius button.on { background: var(--cinnabar); color: #fff; }
 .map .card {
   position: absolute; z-index: 9; left: 14px; right: 14px; bottom: 12px; background: var(--paper-card);
   border-radius: 18px; padding: 13px; display: flex; align-items: center; gap: 12px; box-shadow: 0 16px 34px -12px rgba(0, 0, 0, 0.4);
@@ -315,6 +323,7 @@ body.fullscreen .nav { display: none; }
 .ping.site .pin { width: 26px; height: 26px; }
 .pin.no { background: #8d8472 !important; }
 .pin .pdot { width: 9px; height: 9px; border-radius: 50%; background: #fff; }
+.map-canvas.far .ping.site .ping-label { display: none; }
 .ping-label {
   position: absolute; left: 30px; top: 3px; white-space: nowrap; font-size: 10.5px; font-weight: 600;
   padding: 1px 6px; border-radius: 6px; background: rgba(251, 245, 234, 0.92); color: var(--ink-soft); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);

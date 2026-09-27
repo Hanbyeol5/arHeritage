@@ -371,6 +371,7 @@ GPS ±5~20m, 나침반 ±10~20° 오차가 있어 **건물 윤곽에 딱 맞추�
 - 인증: NCP 콘솔 **Maps > Application** 의 **Web 서비스 URL** 에 `https://samcho93.github.io` 와 `http://localhost:5173` 를 등록해야 합니다. 등록되지 않은 도메인에서는 `navermap_authFailure` 가 호출되어 안내 문구가 뜹니다.
 - 지도는 한 번만 만들고 화면에 다시 붙일 때 `autoResize()` 합니다. 네이버 지도가 컨테이너에 `position:relative` 를 인라인으로 넣어 높이가 0이 되는 문제를 CSS `!important` 로 막았습니다.
 - 같은 유적의 인물 핀은 겹치지 않게 좌우로 벌려 표시, 경기도 밖으로 이동 제한(`maxBounds`).
+- **표시 반경 원**: 1·3·5·10km 선택 → 내 위치 중심 `naver.maps.Circle`(채움 투명도 0.08, 점선 테두리)로 영역 표시, 원 크기에 맞춰 `fitBounds`. 원 안의 일반 유적만 가까운 순 최대 150곳 핀으로 표시하고, 확대 수준 13 미만에서는 이름표를 숨깁니다. 반경 값은 `src/radius.ts` 로 AR 화면과 공유(`localStorage`).
 - 길찾기는 **네이버 지도 앱** URL 스킴 `nmap://route/walk?dlat&dlng&dname&appname` 을 쓰고, 앱이 없으면 웹 지도로 엽니다.
 
 ---
