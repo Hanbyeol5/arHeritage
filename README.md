@@ -3,6 +3,8 @@
 > 유적지 현장에서 스마트폰 카메라를 비추면 주변 유적이 AR로 떠오르고, 그 유적과 관련된 역사 인물(또는 해설사)과
 > **얼굴을 마주 보며 음성으로 대화**하는 웹앱입니다. 시범 지역은 **경기도**입니다.
 
+> 📱 **앱 사용법(화면 캡처 안내)은 [USAGE.md](USAGE.md)** 에 있습니다. 이 문서는 개발·구성 설명입니다.
+
 - 배포 주소: **https://samcho93.github.io/arHeritage/**
 - 대화·음성·인식 서버: **https://yeoksadam-api.samdori93.workers.dev**
 - 디자인 원본: Android 앱 [historydam(역사담)](https://github.com/Hanbyeol5/historydam)의 화면 목업(단청·한지 테마, 8개 화면)
