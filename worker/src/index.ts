@@ -2,6 +2,7 @@
  * 역사담 API (Cloudflare Worker)
  *
  * POST /chat    역사 인물 페르소나 대화 — 인물 소개 + 관련 유적지 국가유산청 설명문을 근거로 답한다.
+ * POST /rag     검색 증강 대화 — 질문마다 RAG 색인에서 관련 조각을 찾아 근거로 쓰고 출처를 돌려준다
  * POST /vision  사진 속 문화재 판별 — historydam VisionRepositoryImpl 과 같은 규칙·응답 형식.
  * POST /tts     인물 목소리 음성 합성 (Azure 신경망 음성, 키가 없으면 503 → 앱이 기기 음성으로 대체)
  *
@@ -11,6 +12,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
+import { bucketOf, queryTerms } from './ragText.ts';
 
 export interface Env {
   ANTHROPIC_API_KEY: string;
@@ -200,6 +202,143 @@ async function chat(req: Request, env: Env, client: Anthropic) {
   return { text: text || '…' };
 }
 
+// ---------- /rag : 검색 증강 대화 ----------
+/**
+ * 질문마다 RAG 색인(public/data/rag, BM25)에서 관련 조각을 찾아 문서로 넣고,
+ * Claude 의 인용(citations) 기능으로 답변이 근거로 삼은 유적을 돌려준다.
+ * 색인 파일은 질문에 든 단어의 것만 읽어 무료 Worker CPU 한도 안에서 검색한다.
+ */
+interface RagMeta {
+  n: number;
+  avgdl: number;
+  group: number;
+  docs: [string, number][];
+}
+interface RagChunk {
+  s: string;
+  t: string;
+  x: string;
+}
+const TOP_K = 6;
+
+async function retrieve(env: Env, query: string, boost: Map<string, number>, must: string[]): Promise<{ i: number; c: RagChunk }[]> {
+  const base = `${env.SITE_BASE}data/rag/`;
+  const meta = await fetchJson<RagMeta>(`${base}meta.json`);
+  const qt = queryTerms(query);
+  const bucketIds = [...new Set(qt.map(bucketOf))];
+  const buckets = new Map(
+    await Promise.all(
+      bucketIds.map(async (b) => [b, await fetchJson<Record<string, number[]>>(`${base}b/${b}.json`).catch(() => ({}) as Record<string, number[]>)] as const),
+    ),
+  );
+  // BM25 (k1 = 1.2, b = 0.75)
+  const scores = new Map<number, number>();
+  for (const t of qt) {
+    const e = buckets.get(bucketOf(t))?.[t];
+    if (!e) continue;
+    const df = e[0];
+    const idf = Math.log(1 + (meta.n - df + 0.5) / (df + 0.5));
+    for (let k = 1; k < e.length; k += 2) {
+      const i = e[k];
+      const tf = e[k + 1];
+      const dl = meta.docs[i][1];
+      scores.set(i, (scores.get(i) ?? 0) + (idf * tf * 2.2) / (tf + 1.2 * (0.25 + (0.75 * dl) / meta.avgdl)));
+    }
+  }
+  // 대화 상대와 연결된 유적·인물 조각에 가중치
+  for (const [i, s] of scores) scores.set(i, s * (boost.get(meta.docs[i][0]) ?? 1));
+  // 꼭 넣을 조각 (인물 소개 / 해설사가 안내하는 유적의 첫 조각)
+  const mustIdx = must.map((src) => meta.docs.findIndex(([s]) => s === src)).filter((i) => i >= 0);
+  const top = [...new Set([...mustIdx, ...[...scores].sort((a, b) => b[1] - a[1]).map(([i]) => i)])].slice(0, TOP_K);
+
+  const groups = new Map(
+    await Promise.all(
+      [...new Set(top.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json`)] as const),
+    ),
+  );
+  return top.map((i) => ({ i, c: groups.get(Math.floor(i / meta.group))![i % meta.group] }));
+}
+
+async function rag(req: Request, env: Env, client: Anthropic) {
+  const body = ChatBody.parse(await req.json());
+  const { figures } = await fetchJson<{ figures: Figure[] }>(`${env.SITE_BASE}data/figures.json`);
+  const guideSite = body.figureId.startsWith('guide:') ? body.figureId.slice(6) : undefined;
+  const f = figures.find((x) => x.id === body.figureId);
+  if (!f && !guideSite) throw new HttpError(404, '인물을 찾을 수 없습니다.');
+  if (guideSite && !/^[\w-]{1,40}$/.test(guideSite)) throw new HttpError(400, '유적지 id 가 올바르지 않습니다.');
+
+  const lines = body.lines.filter((l) => !l.system && l.text.trim()).slice(-MAX_TURNS);
+  while (lines.length && !lines[0].mine) lines.shift();
+  if (!lines.length || !lines[lines.length - 1].mine) throw new HttpError(400, '질문이 없습니다.');
+  const question = lines[lines.length - 1].text.slice(0, MAX_CHARS);
+  // 검색어: 이번 질문 + 바로 앞 질문 (대명사로 이어지는 질문 대비)
+  const prevQ = lines.slice(0, -1).filter((l) => l.mine).slice(-1)[0]?.text ?? '';
+  const boost = new Map<string, number>();
+  const must: string[] = [];
+  if (f) {
+    f.sites.forEach((s) => boost.set(s.id, 1.6));
+    boost.set(`fig:${f.id}`, 2);
+    must.push(`fig:${f.id}`);
+  } else {
+    boost.set(guideSite!, 2);
+    must.push(guideSite!);
+  }
+  const found = await retrieve(env, `${question} ${prevQ}`, boost, must);
+
+  const persona = f
+    ? `너는 역사 인물 ${f.name}(${f.hanja}, ${f.title}, ${f.years})이다. 유적지를 찾은 방문객과 얼굴을 마주 보고 이야기하는 AR 앱 '역사담'에서, ${f.name} 본인으로서 1인칭으로 대화한다.
+[인물 소개] ${f.bio}
+- 말씨: ${speechStyle(f)}. 옛 어른이 오늘날 사람에게 차분히 이야기하듯 자연스러운 우리말로.
+- ${f.years} 이후의 일은 "내가 떠난 뒤의 일"로 말한다.`
+    : `너는 AR 앱 '역사담'의 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서 친절한 존댓말로 유적을 안내한다.`;
+  const system = `${persona}
+
+[근거 자료 사용 규칙 — RAG]
+- 방문객의 질문과 함께 검색된 자료 문서가 주어진다. 답은 반드시 그 문서에 적힌 사실에 근거하고, 문서에 없는 내용은 지어내지 말고 기록이 분명치 않다고 솔직히 말한다.
+- 답은 음성으로 읽히므로 2~4문장, 180자 안팎. 목록·마크다운·이모지·괄호 설명·특수 기호는 쓰지 않는다.
+- 문서 제목이나 "자료에 따르면" 같은 말은 소리 내어 말하지 말고, 대화하듯 자연스럽게 녹여 말한다.
+- 역사·유적과 무관한 요청은 정중히 사양한다.
+지연에 민감한 음성 대화이므로 곧바로 답을 시작하라.`;
+
+  const history: Anthropic.Beta.BetaMessageParam[] = lines.slice(0, -1).map((l) => ({
+    role: l.mine ? 'user' : 'assistant',
+    content: l.text.slice(0, MAX_CHARS),
+  }));
+  const documents: Anthropic.Beta.BetaRequestDocumentBlock[] = found.map(({ c }) => ({
+    type: 'document',
+    source: { type: 'text', media_type: 'text/plain', data: c.x },
+    title: c.t,
+    citations: { enabled: true },
+  }));
+
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 2000,
+    ...FALLBACK,
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'low' },
+    system,
+    messages: [...history, { role: 'user', content: [...documents, { type: 'text', text: question }] }],
+  });
+  if (response.stop_reason === 'refusal') {
+    return { text: '그 이야기는 답하기 어렵구려. 다른 것을 물어 주시게.', sources: [] };
+  }
+
+  const blocks = response.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text');
+  const text = blocks.map((b) => b.text).join('').trim();
+  // 인용된 문서 → 출처 유적 (같은 유적은 한 번만)
+  const sources = new Map<string, { id: string; name: string; quote: string }>();
+  for (const b of blocks) {
+    for (const cit of b.citations ?? []) {
+      if (!('document_index' in cit)) continue;
+      const hit = found[cit.document_index];
+      if (!hit || sources.has(hit.c.s)) continue;
+      sources.set(hit.c.s, { id: hit.c.s, name: hit.c.t, quote: cit.cited_text.replace(/\s+/g, ' ').slice(0, 90) });
+    }
+  }
+  return { text: text || '…', sources: [...sources.values()], retrieved: found.map(({ c }) => c.t) };
+}
+
 // ---------- /vision ----------
 const VisionBody = z.object({
   image: z.string().max(MAX_IMAGE_B64),
@@ -313,6 +452,7 @@ export default {
     const path = new URL(req.url).pathname;
     try {
       if (path === '/chat') return json(await chat(req, env, client), 200, headers);
+      if (path === '/rag') return json(await rag(req, env, client), 200, headers);
       if (path === '/vision') return json(await vision(req, client), 200, headers);
       if (path === '/tts') {
         const audio = await tts(req, env);

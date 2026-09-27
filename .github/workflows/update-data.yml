@@ -23,6 +23,8 @@ jobs:
       # 국가유산청 데이터 다음에 향토유산을 덧붙인다
       - run: npm run data:hyangto
       - run: npm run data:tour
+      # 바뀐 유적 설명으로 RAG 검색 색인을 다시 만든다
+      - run: npm run data:rag
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"

@@ -25,14 +25,19 @@ export interface NotificationItem {
   read?: boolean;
 }
 
+/** 인물 대화 방식: 기본(연결 자료 주입) · 내장 RAG 서버 · 외부 RAG 서버(historydam 호환) */
+export type ChatMode = 'basic' | 'rag' | 'custom';
+
 interface StoreData {
   discoveries: Discovery[];
   notifications: NotificationItem[];
   nickname: string;
+  chatMode: ChatMode;
+  ragUrl: string;
 }
 
 const KEY = 'yeoksadam:v2';
-const empty = (): StoreData => ({ discoveries: [], notifications: [], nickname: '나그네' });
+const empty = (): StoreData => ({ discoveries: [], notifications: [], nickname: '나그네', chatMode: 'basic', ragUrl: '' });
 
 function load(): StoreData {
   try {
@@ -64,6 +69,17 @@ export const store = {
   },
   get nickname() {
     return data.nickname;
+  },
+  get chatMode(): ChatMode {
+    return data.chatMode;
+  },
+  get ragUrl() {
+    return data.ragUrl;
+  },
+  setChat(mode: ChatMode, url?: string) {
+    data.chatMode = mode;
+    if (url !== undefined) data.ragUrl = url.trim().replace(/\/+$/, '');
+    save();
   },
   setNickname(name: string) {
     data.nickname = name.trim().slice(0, 12) || data.nickname;

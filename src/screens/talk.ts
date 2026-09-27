@@ -7,6 +7,7 @@ import { angleDiff, bearing } from '../geo.ts';
 import { guideFor } from '../guide.ts';
 import { go, type Screen } from '../router.ts';
 import { canListen, canSpeak, listen, speak, stopSpeaking, unlockAudio } from '../speech.ts';
+import { store } from '../store.ts';
 import type { Figure } from '../types.ts';
 import { asset, esc } from '../ui/dom.ts';
 import { icons } from '../ui/icons.ts';
@@ -60,7 +61,9 @@ export const talkScreen: Screen = {
       <div class="tk-top">
         <a class="icbtn" href="#/home" aria-label="홈">${icons.home.replace('currentColor', '#fff')}</a>
         <button class="tk-who" aria-label="인물 정보">
-          <span class="live">● LIVE</span><b>${esc(f.name)}</b><small>${esc(f.title)}</small>
+          <span class="live">● LIVE</span><b>${esc(f.name)}</b><small>${esc(f.title)}</small>${
+            store.chatMode === 'basic' ? '' : `<span class="mode">${store.chatMode === 'rag' ? 'RAG' : '외부 RAG'}</span>`
+          }
         </button>
         <button class="icbtn tk-mute" aria-label="음성 끄기" aria-pressed="false">${icons.speaker}</button>
       </div>
@@ -170,11 +173,31 @@ export const talkScreen: Screen = {
     };
 
     /** 자막 한 줄 추가 (라이브 방송처럼 아래에 쌓이고 위로 밀려 사라짐) */
+    /** RAG 답변의 근거 자료 (누르면 유적 카드·인물 소개) */
+    const addSources = (el: HTMLElement, l: Line) => {
+      if (!l.sources?.length || el.querySelector('.tk-src')) return;
+      const box = document.createElement('div');
+      box.className = 'tk-src';
+      box.innerHTML = `📚 근거 ${l.sources
+        .map((s) => (s.id ? `<button data-src="${esc(s.id)}" title="${esc(s.quote ?? '')}">${esc(s.name)}</button>` : `<q>${esc(s.quote ?? s.name)}</q>`))
+        .join('')}`;
+      box.querySelectorAll<HTMLElement>('[data-src]').forEach((b) =>
+        b.addEventListener('click', () => {
+          const id = b.dataset.src!;
+          if (id.startsWith('fig:')) openFigureSheet(id.slice(4));
+          else openHeritage(id);
+        }),
+      );
+      el.appendChild(box);
+      feed.scrollTop = feed.scrollHeight;
+    };
+
     const addLine = (l: Line, text = l.text): HTMLElement => {
       const el = document.createElement('div');
       el.className = `tk-line ${l.mine ? 'me' : 'them'} ${l.system ? 'sys' : ''}`;
       el.innerHTML = `<b>${l.system ? '안내' : l.mine ? '나' : esc(f.name)}</b><span></span>`;
       el.querySelector('span')!.textContent = text;
+      if (text === l.text) addSources(el, l);
       feed.appendChild(el);
       while (feed.children.length > 30) feed.firstElementChild!.remove();
       feed.scrollTo({ top: feed.scrollHeight, behavior: 'smooth' });
@@ -195,6 +218,7 @@ export const talkScreen: Screen = {
         const finish = () => {
           clearInterval(revealTimer);
           show(l.text.length);
+          addSources(el, l);
           resolve();
         };
         if (l.system || muted || !canSpeak()) {
