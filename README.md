@@ -7,6 +7,7 @@
 
 - 배포 주소: **https://samcho93.github.io/arHeritage/**
 - 대화·음성·인식 서버: **https://yeoksadam-api.samdori93.workers.dev**
+- RAG 자료 편집기(관리자용, 웹앱에 링크 없음): **https://samcho93.github.io/arHeritage/editor/**
 - 디자인 원본: Android 앱 [historydam(역사담)](https://github.com/Hanbyeol5/historydam)의 화면 목업(단청·한지 테마, 8개 화면)
 
 ---
@@ -71,6 +72,8 @@ flowchart LR
     LS["도감·알림<br/>localStorage"]
   end
 
+  ED["RAG 자료 편집기<br/>/editor/ (관리자 브라우저)"]
+
   subgraph GH["GitHub (samcho93/arHeritage)"]
     PAGES["GitHub Pages<br/>정적 파일 + data/*.json"]
     ACT["GitHub Actions<br/>배포·데이터 갱신"]
@@ -95,12 +98,14 @@ flowchart LR
   UI -- 대화·인식·음성 --> CF
   CHAT --> CLAUDE
   RAG --> CLAUDE
-  RAG -- "RAG 색인 rag/*.json" --> PAGES
+  RAG -- "RAG 색인 rag/*.json<br/>(1분마다 버전 확인)" --> PAGES
   UI -. "외부 RAG (선택)" .-> EXT["외부 RAG 서버<br/>historydam backend 호환"]
   VIS --> CLAUDE
   TTS --> AZURE
   CHAT -- 인물·유적 JSON --> PAGES
-  ACT -- 빌드·배포 --> PAGES
+  ED -- "rag-edits.json 커밋<br/>(GitHub REST API)" --> ACT
+  ED -. "대화로 확인" .-> RAG
+  ACT -- "빌드·배포<br/>(data:rag 색인 재생성)" --> PAGES
   ACT -- wrangler 배포 --> CF
   ACT -- 월 1회 수집 --> KHS
   ACT -- 월 1회 수집 --> DGK
@@ -133,7 +138,30 @@ sequenceDiagram
   A->>A: 연속 대화 모드면 다시 듣기
 ```
 
-### 2.3 데이터 파이프라인
+### 2.3 RAG 서버 방식으로 대화할 때의 흐름
+
+메뉴 → 설정에서 **RAG 서버 (역사담 내장)** 을 고르면 2.2 의 `/chat` 대신 `/rag` 를 부릅니다 (자세한 내용은 [9.3](#93-대화-방식-선택--기본--rag-서버--외부-rag-서버)).
+
+```mermaid
+sequenceDiagram
+  participant A as 웹앱 (talk 화면)
+  participant W as Worker /rag
+  participant P as GitHub Pages (data/rag)
+  participant C as Claude API
+
+  A->>W: {figureId, siteId, lines}
+  W->>P: meta.json (1분마다 버전 v 확인)
+  W->>W: 질문 + 앞 질문 → 한글 바이그램 검색어 (불용어 제외)
+  W->>P: 검색어가 속한 b/번호.json?v= 만 병렬로
+  W->>W: BM25 + 대화 상대 가중치 → 상위 6조각
+  W->>P: c/번호.json?v= (조각 본문)
+  W->>C: 인물 페르소나 + document 블록 6개 (citations 사용)
+  C-->>W: 1인칭 답변 + 인용 위치
+  W-->>A: {text, sources[유적 id·이름·인용문], retrieved}
+  A->>A: 자막·음성 + 답변 아래 📚 근거 버튼 (누르면 유적 카드)
+```
+
+### 2.4 데이터 파이프라인
 
 ```mermaid
 flowchart TD
@@ -144,6 +172,7 @@ flowchart TD
   I --> APP
   I -->|build-rag.ts| RG["public/data/rag/<br/>BM25 색인 256 + 본문 71 + meta"]
   F -->|build-rag.ts| RG
+  E["public/data/rag-edits.json<br/>(RAG 자료 편집기 수정 사항)"] -->|build-rag.ts<br/>글 바꾸기·제외·추가| RG
   RG --> APP
 ```
 
@@ -154,7 +183,7 @@ flowchart TD
 | 영역 | 기술 | 사용 위치 / 용도 |
 |---|---|---|
 | 언어 | **TypeScript** | 웹앱(`src/`), 데이터 스크립트(`scripts/`), Worker(`worker/`) |
-| 빌드 | **Vite 8** | 개발 서버·번들링, `BASE_PATH` 로 GitHub Pages 하위 경로 대응 |
+| 빌드 | **Vite 8** | 개발 서버·번들링, `BASE_PATH` 로 GitHub Pages 하위 경로 대응, 웹앱·RAG 편집기 두 페이지 빌드(`rollupOptions.input`) |
 | UI | **순수 TypeScript + DOM** (프레임워크 없음) | 해시 라우터(`router.ts`)와 화면 모듈(`screens/*`) |
 | 스타일 | **CSS 변수** (단청·한지 팔레트) | `style.css` — historydam 목업 CSS 값 1:1 |
 | 글꼴 | Google Fonts: **나눔명조, 고운바탕, Noto Sans KR** | 제목·인물명(명조), 본문(고딕) |
@@ -169,6 +198,7 @@ flowchart TD
 | 서버 | **Cloudflare Workers** + **wrangler** | API 키 보관·중계 (`worker/src/index.ts`) |
 | 입력 검증 | **zod** | Worker 요청 검증, 비전 구조화 출력 스키마 |
 | 검색 (RAG) | **BM25** (한글 바이그램 역색인, 정적 분할 파일) + Claude **citations** | `scripts/build-rag.ts`, `worker/src/ragText.ts`, Worker `/rag` |
+| RAG 자료 편집 | **GitHub REST API** (Contents) + fine-grained 토큰 | `src/editor/main.ts` — `rag-edits.json` 커밋 → 배포 워크플로가 색인 재생성 |
 | 데이터 수집 | Node.js 24 + **tsx**, **fast-xml-parser** | `scripts/*.ts` |
 | 호스팅 | **GitHub Pages** | 정적 웹앱·데이터 JSON |
 | CI/CD | **GitHub Actions** | Pages 배포, Worker 배포, 월간 데이터 갱신 |
@@ -182,7 +212,8 @@ flowchart TD
 arHeritige/
 ├─ index.html                 앱 셸 + 인물 일러스트·전신 실루엣 SVG(defs)
 ├─ editor/index.html          RAG 자료 편집기 페이지 (웹앱에 링크 없음)
-├─ vite.config.ts             base 경로, PWA 매니페스트(fullscreen)·Workbox 캐시 규칙
+├─ USAGE.md                   앱 사용법 (화면 캡처 안내, docs/images/*)
+├─ vite.config.ts             base 경로, 웹앱·편집기 두 페이지, PWA 매니페스트(fullscreen)·Workbox 캐시 규칙
 ├─ public/
 │  ├─ icon.svg                앱 아이콘(談)
 │  ├─ figures/                인물 초상 <id>.jpg + 배경 제거 컷아웃 <id>-cutout.webp
@@ -201,6 +232,7 @@ arHeritige/
 ├─ src/
 │  ├─ main.ts                 하단 5탭, 라우팅, 시작 화면, 전체 화면·오디오 잠금 해제
 │  ├─ router.ts               해시 라우터 (#/home, #/map, #/ar, #/talk/<id> …)
+│  ├─ radius.ts               표시 반경 1·3·5·10km (AR·지도 공용)
 │  ├─ app.ts                  앱 상태: 유적·인물 로드, 주변 계산, 도착 판정
 │  ├─ data.ts                 index/detail JSON 로드·캐시, 반경 검색
 │  ├─ geo.ts                  거리(haversine)·방위각·각도차
@@ -318,6 +350,8 @@ npm run data:tour       # data:hyangto 다음에
 | `#/talk/<인물 id>` · `#/talk/guide?site=<id>` | 인물 / 해설사 대화 | 전체 화면 (`#/chat`, `#/voice` 도 같은 화면) |
 | `#/figures` · `#/profile` · `#/notifications` | 모든 인물 · 역사의 전당 · 알림 | |
 
+웹앱과 별도로 **`/editor/`** 는 독립 페이지(`editor/index.html` → `src/editor/main.ts`)입니다. 웹앱의 라우터·메뉴와 연결되지 않고 주소로만 들어갑니다 ([9.3.5](#935-rag-자료-편집기-editor-웹앱과-분리된-관리-도구)).
+
 각 화면은 `Screen.mount(root, params, query)` 가 정리 함수를 돌려주는 구조로, 화면을 떠날 때 카메라·센서·음성·타이머를 모두 해제합니다.
 
 ### 6.2 상태와 계산 (`app.ts`)
@@ -432,7 +466,8 @@ flowchart LR
 | ② 토큰화 (`worker/src/ragText.ts`) | 한글은 **2글자 단위(바이그램)**, 영문·숫자는 단어 단위. 조사·어미가 붙어도 어간 바이그램이 겹쳐 형태소 분석기 없이 검색됨 |
 | ③ 역색인 | `단어 → [문서빈도, 조각번호, 빈도, …]` 를 FNV-1a 해시로 **256개 파일**(`rag/b/<n>.json`, 평균 7KB)에 분산 |
 | ④ 본문 | 조각 본문을 32개씩 묶어 `rag/c/<n>.json` (71개 파일) |
-| ⑤ 메타 | `rag/meta.json` — 조각 수, 평균 길이, 조각별 `[출처 id, 길이]` |
+| ⑤ 메타 | `rag/meta.json` — **버전 `v`**(조각 내용의 SHA-1 앞 12자리), 조각 수, 평균 길이, 조각별 `[출처 id, 길이]` |
+| ⑥ 사용자 수정 | `public/data/rag-edits.json` 을 먼저 읽어 글 바꾸기(overrides)·제외(hidden)·추가(extra)를 반영 ([9.3.5](#935-rag-자료-편집기-editor-웹앱과-분리된-관리-도구)) |
 
 현재 규모: 조각 **2,259개**, 단어 **25,201개**, 전체 약 4MB. 월간 데이터 갱신 때 `npm run data:rag` 로 다시 만듭니다.
 
@@ -443,7 +478,7 @@ npm run data:rag      # data:fetch → data:hyangto → data:tour 다음에
 #### 9.3.2 내장 RAG 서버 — 검색과 답변 (`worker/src/index.ts` `POST /rag`)
 
 1. **검색어**: 이번 질문 + 바로 앞 질문(「그분은…」처럼 이어지는 질문 대비). 「어떻게·무엇·습니다·선생」 같은 뜻 없는 바이그램은 질문에서만 제외.
-2. **색인 읽기**: 검색어가 속한 색인 파일만 GitHub Pages 에서 병렬로 가져옵니다 (보통 10~20개, 수십 KB). Worker isolate 안에서 캐시. 전체 색인을 읽지 않으므로 **무료 Worker 의 요청당 CPU 10ms 한도** 안에서 동작합니다.
+2. **색인 읽기**: 검색어가 속한 색인 파일만 GitHub Pages 에서 병렬로 가져옵니다 (보통 10~20개, 수십 KB). Worker isolate 안에서 캐시하되, `meta.json` 은 **1분마다 다시 확인**하고 색인·본문 파일 주소에 `?v=<버전>` 을 붙입니다. 버전이 바뀌면(편집기 반영·월간 갱신) 옛 캐시를 비우고 새 색인을 읽어, 옛 색인과 새 본문이 섞이지 않습니다. 전체 색인을 읽지 않으므로 **무료 Worker 의 요청당 CPU 10ms 한도** 안에서 동작합니다.
 3. **BM25 점수** (k1 = 1.2, b = 0.75) 후 **가중치**: 인물과 연결된 유적 ×1.6, 인물 자신의 소개 ×2, 해설사가 안내하는 유적 ×2. 인물 소개(또는 안내 유적의 첫 조각)는 항상 포함.
 4. 상위 **6조각**을 Claude 의 `document` 블록(`citations: { enabled: true }`)으로 질문 앞에 넣습니다.
 5. 시스템 프롬프트: 인물 말씨 + 「검색된 문서에 적힌 사실에만 근거, 문서에 없으면 모른다고, 문서 제목이나 '자료에 따르면'은 소리 내어 말하지 않기」.
@@ -652,6 +687,7 @@ historydam 의 `RecognizeHeritagePhotoUseCase` 와 같은 흐름입니다 (`scre
 ## 14. PWA·전체 화면·몰입 모드
 
 - `vite-plugin-pwa`: 매니페스트 `display: fullscreen`(대체 `standalone`), 앱 셸·`index.json`·`figures.json`·초상을 미리 캐시, 유적 상세는 `StaleWhileRevalidate`, 국가유산청 사진은 `CacheFirst`(30일).
+- RAG 자료 편집기(`/editor/`)는 미리 캐시(`globIgnores`)와 앱 화면 대체(`navigateFallbackDenylist`)에서 빼서, 웹앱 서비스 워커가 편집기 주소를 앱 화면으로 바꾸지 않게 했습니다.
 - **전체 화면**: 안드로이드는 첫 터치 때 `requestFullscreen({navigationUI: 'hide'})`. iOS 사파리는 웹 페이지 전체 화면을 지원하지 않아 「공유 → 홈 화면에 추가」를 한 번 안내합니다.
 - **몰입 모드** (`ui/immersive.ts`): AR·대화 화면의 버튼은 3.5초 뒤 숨고 터치하면 다시 나타납니다. 숨은 버튼은 `pointer-events: none` 이라 첫 터치가 버튼을 잘못 누르지 않습니다.
 
@@ -692,6 +728,7 @@ npm run dev                         # http://localhost:5173
 
 - 실내·PC 테스트: `http://localhost:5173/?lat=37.2818&lng=127.0137#/home` 처럼 **위치를 고정**할 수 있습니다 (수원 화성행궁). 시작 화면의 「데모 위치」도 같은 좌표.
 - AR 화면은 PC 에서 드래그·←/→ 키로 방향을 돌려 볼 수 있습니다.
+- RAG 자료 편집기: `http://localhost:5173/editor/`. 편집한 내용을 로컬 색인에 반영해 보려면 편집기의 「파일 → 작업본 내려받기」로 받은 파일을 `public/data/rag-edits.json` 에 두고 `npm run data:rag`.
 - 카메라·위치·나침반은 **HTTPS 또는 localhost** 에서만 동작하므로 실제 폰 테스트는 GitHub Pages 배포본으로 합니다.
 
 ```bash
@@ -740,6 +777,7 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 | **Claude API** | **대화 1회·사진 인식 1회마다 과금** (`claude-opus-5`) | RAG 모드는 검색 조각 6개를 매번 넣어 기본 모드와 비슷하거나 약간 많음. Anthropic Console 에서 사용 한도 설정 권장 |
 | Azure Speech | 무료 F0: 신경망 음성 월 50만 자 (답변 150~200자 → 월 약 2,500~3,000회) | 초과·장애 시 기기 음성으로 대체 |
 | 공공데이터 | 무료 | |
+| RAG 색인·편집기 | 무료 (정적 파일 약 4MB, GitHub API) | 편집기의 「대화로 확인」은 `/rag` 를 부르므로 Claude 사용량에 포함 |
 
 ---
 
@@ -752,6 +790,9 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 - **알림**: 웹앱은 앱이 닫혀 있을 때 위치를 추적할 수 없어, 앱이 열려 있는 동안만 도착 알림이 됩니다.
 - **요청 제한**: Worker 에 요청 횟수 제한이 없으므로 공개 운영 전 추가를 권장합니다.
 - **RAG 검색**: BM25 키워드 검색이라 표현이 전혀 다른 질문(동의어·의역)은 관련 자료를 놓칠 수 있습니다. 외부 RAG 서버는 HTTPS·CORS 가 준비된 서버만 연결됩니다.
+- **RAG 편집 반영 시간**: 「GitHub 에 반영」 뒤 배포(2~3분) + Worker 버전 확인(최대 1분)이 지나야 대화에 쓰입니다. 편집 내용은 **RAG 서버 방식**에만 쓰이고, 「기본」 방식과 유적 카드 설명은 원문 그대로입니다.
+- **편집기 토큰**: 토큰은 편집 담당자의 브라우저에 저장됩니다. GitHub Pages 는 같은 계정의 페이지가 같은 출처(`samcho93.github.io`)를 쓰므로, 공용 PC 에서는 「기억하기」를 끄고 권한은 이 저장소 Contents 로만 좁힌 토큰을 쓰세요.
+- **동시 편집**: 반영할 때 최신본 위에 내가 바꾼 항목만 덮어써 다른 사람의 변경은 유지되지만, **같은 자료**를 동시에 고치면 나중에 반영한 쪽이 남습니다.
 - **초상**: 효종·인조·세조는 아직 초상이 없어 인장·실루엣으로 표시됩니다.
 
 ---
