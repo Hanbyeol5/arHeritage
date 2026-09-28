@@ -7,7 +7,7 @@ workers_dev = true
 
 [vars]
 SITE_BASE = "https://samcho93.github.io/arHeritage/"
-ALLOWED_ORIGINS = "https://samcho93.github.io,http://localhost:5173"
+ALLOWED_ORIGINS = "https://samcho93.github.io,http://localhost:5173,https://hanbyeol5.github.io"
 
 # ANTHROPIC_API_KEY 는 `npx wrangler secret put ANTHROPIC_API_KEY` 로 등록 (로컬은 .dev.vars)
 
