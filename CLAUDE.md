@@ -51,6 +51,6 @@ GitHub Pages 로 배포하고 사용자는 폰으로 접속한다. 사용자와�
   - 이미지를 만든 뒤 `tools/make-cutout.mjs <id> <이미지>` 로 처리한다.
   - 프롬프트는 `docs/SETUP.md` 6절에 있다.
   - Hugging Face 무료 GPU 한도 때문에 보류 중이다.
-- **포크(Hanbyeol5/arHeritage) 지원.** 포크 쪽에서 Actions·Pages(GitHub Actions)·Variables 를 설정해야 한다.
-  - 대화 서버를 같이 쓰려면 `worker/wrangler.toml` 의 `ALLOWED_ORIGINS` 에 `https://hanbyeol5.github.io` 를 추가해야 한다.
-  - 추가할지 사용자 결정을 기다리는 중이다.
+- **포크(Hanbyeol5/arHeritage) 지원.** Worker `ALLOWED_ORIGINS` 에 `https://hanbyeol5.github.io` 는 추가됨 (2026-09-28).
+  - 포크 쪽에서 남은 일: Actions 켜기, Pages Source 를 GitHub Actions 로, Variables(`NAVER_MAP_KEY_ID`, `API_BASE`) 등록.
+  - 네이버 지도 Web 서비스 URL 에 포크 주소 추가 (`docs/SETUP.md` 7절).
