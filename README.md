@@ -4,6 +4,7 @@
 > **얼굴을 마주 보며 음성으로 대화**하는 웹앱입니다. 시범 지역은 **경기도**입니다.
 
 > 📱 **앱 사용법(화면 캡처 안내)은 [USAGE.md](USAGE.md)** 에 있습니다. 이 문서는 개발·구성 설명입니다.
+> 💻 **다른 PC 에서 개발 환경 준비는 [docs/SETUP.md](docs/SETUP.md)** (설치 스크립트 `scripts/setup.ps1` · `setup.sh`).
 
 - 배포 주소: **https://samcho93.github.io/arHeritage/**
 - 대화·음성·인식 서버: **https://yeoksadam-api.samdori93.workers.dev**
@@ -213,6 +214,9 @@ arHeritige/
 ├─ index.html                 앱 셸 + 인물 일러스트·전신 실루엣 SVG(defs)
 ├─ editor/index.html          RAG 자료 편집기 페이지 (웹앱에 링크 없음)
 ├─ USAGE.md                   앱 사용법 (화면 캡처 안내, docs/images/*)
+├─ CLAUDE.md                  Claude Code 작업 안내 (구조·규칙·남은 작업)
+├─ docs/SETUP.md              다른 PC 개발 환경 준비
+├─ tools/                     사용법 화면 캡처 · 초상 배경 제거 (별도 package.json)
 ├─ vite.config.ts             base 경로, 웹앱·편집기 두 페이지, PWA 매니페스트(fullscreen)·Workbox 캐시 규칙
 ├─ public/
 │  ├─ icon.svg                앱 아이콘(談)
@@ -718,6 +722,8 @@ historydam 의 `RecognizeHeritagePhotoUseCase` 와 같은 흐름입니다 (`scre
 ---
 
 ## 16. 로컬 개발 절차
+
+> 새 PC 라면 먼저 `scripts/setup.ps1 -All`(Windows) 또는 `bash scripts/setup.sh --all` 로 의존성·`.env.local`·빌드 확인을 한 번에 할 수 있습니다. 자세한 안내: [docs/SETUP.md](docs/SETUP.md)
 
 ```bash
 # 1) 웹앱

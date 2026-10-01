@@ -1,0 +1,15 @@
+{
+  "name": "yeoksadam-tools",
+  "private": true,
+  "type": "module",
+  "description": "역사담 보조 도구 — 사용법 화면 캡처, 인물 초상 배경 제거 (웹앱 빌드와 별개)",
+  "scripts": {
+    "capture": "node capture-usage.mjs",
+    "cutout": "node make-cutout.mjs"
+  },
+  "dependencies": {
+    "@imgly/background-removal-node": "^1.4.5",
+    "puppeteer-core": "^24.0.0",
+    "sharp": "^0.35.4"
+  }
+}

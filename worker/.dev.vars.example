@@ -1,0 +1,12 @@
+# 로컬 Worker(npm run dev) 용 비밀값: 이 파일을 .dev.vars 로 복사해서 채운다. (.dev.vars 는 git 에 올라가지 않음)
+# 배포된 Worker 는 GitHub Secrets → Deploy API worker 워크플로가 등록한 값을 쓰므로, 로컬 Worker 가 필요할 때만 만든다.
+
+# console.anthropic.com 에서 발급
+ANTHROPIC_API_KEY=
+
+# 로컬 웹앱의 데이터(figures.json, detail, rag)를 읽게 하려면 로컬 주소로 (기본은 wrangler.toml 의 배포 주소)
+SITE_BASE=http://localhost:5173/
+
+# 인물 목소리 (선택) — 없으면 기기 음성으로 대체
+AZURE_SPEECH_KEY=
+AZURE_SPEECH_REGION=koreacentral
