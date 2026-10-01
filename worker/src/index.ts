@@ -20,6 +20,8 @@ export interface Env {
   SITE_BASE: string;
   /** 쉼표로 구분한 허용 출처 */
   ALLOWED_ORIGINS: string;
+  /** 쉼표로 구분한 앱 식별 값 — Android 앱(historydam)은 Origin 대신 X-App-Key 헤더로 들어온다 */
+  APP_KEYS?: string;
   /** Azure Speech (선택) */
   AZURE_SPEECH_KEY?: string;
   AZURE_SPEECH_REGION?: string;
@@ -515,7 +517,10 @@ export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const headers = cors(req.headers.get('Origin'), env);
     if (req.method === 'OPTIONS') return new Response(null, { status: headers['Access-Control-Allow-Origin'] ? 204 : 403, headers });
-    if (!headers['Access-Control-Allow-Origin']) return json({ error: '허용되지 않은 출처입니다.' }, 403, headers);
+    // 웹앱은 Origin, Android 앱은 X-App-Key 로 확인한다 (둘 다 비밀은 아니며, 브라우저 밖의 남용 방지 수준)
+    const appKey = req.headers.get('X-App-Key');
+    const fromApp = !!appKey && (env.APP_KEYS ?? '').split(',').map((k) => k.trim()).includes(appKey);
+    if (!headers['Access-Control-Allow-Origin'] && !fromApp) return json({ error: '허용되지 않은 출처입니다.' }, 403, headers);
     if (req.method !== 'POST') return json({ error: 'POST 만 지원합니다.' }, 405, headers);
 
     const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
