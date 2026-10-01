@@ -1,0 +1,54 @@
+name: Sync from upstream
+
+# 이 저장소를 복사해 따로 배포하는 저장소(예: Hanbyeol5/arHeritage)가 원본 samcho93/arHeritage 의
+# 변경을 받아와 바로 배포한다. 원본 저장소에서는 실행되지 않는다.
+#   - 수동: Actions → Sync from upstream → Run workflow
+#   - 자동: 매일 03:00 KST
+# 원본에서 .github/workflows/ 파일이 바뀐 경우 기본 토큰으로는 push 가 거부되므로,
+# 저장소 Secret SYNC_TOKEN (classic PAT, repo·workflow 권한)을 등록하거나 명령줄로 동기화한다.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  sync:
+    if: github.repository != 'samcho93/arHeritage'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: 원본 변경 받기
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/samcho93/arHeritage.git
+          git fetch upstream main
+          before=$(git rev-parse HEAD)
+          if ! git merge --no-edit upstream/main; then
+            echo "::error::원본과 충돌이 나서 자동으로 합칠 수 없습니다. 이 저장소에서 직접 고친 파일을 확인하고 명령줄로 합쳐 주세요."
+            exit 1
+          fi
+          if [ "$before" = "$(git rev-parse HEAD)" ]; then
+            echo "새 변경 없음"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git log --oneline "$before..HEAD"
+            git push origin HEAD:main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 기본 토큰(GITHUB_TOKEN)으로 한 push 는 다른 워크플로를 깨우지 않으므로 배포를 직접 실행한다
+      - name: GitHub Pages 배포 실행
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main
