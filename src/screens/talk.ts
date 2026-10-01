@@ -1,6 +1,6 @@
 import { josa } from '../ui/josa.ts';
 import { app } from '../app.ts';
-import { reply, session, type Line } from '../conversation.ts';
+import { lastTalked, reply, resetSession, saveSession, session, type Line } from '../conversation.ts';
 import { openFigureSheet } from '../figureSheet.ts';
 import { openHeritage } from '../heritageSheet.ts';
 import { angleDiff, bearing } from '../geo.ts';
@@ -248,16 +248,37 @@ export const talkScreen: Screen = {
         });
       });
 
+    /** 저장된 대화를 이어 보여 줄 때: 언제 나눈 대화인지와 「새로 시작」 */
+    const resumeBar = () => {
+      const at = lastTalked(f);
+      const el = document.createElement('div');
+      el.className = 'tk-resume';
+      el.innerHTML = `<span>↑ ${at ? `${new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric' }).format(at)}에 나눈 ` : '지난 '}대화를 이어 갑니다</span><button>새로 시작</button>`;
+      el.querySelector('button')!.addEventListener('click', () => {
+        if (state === 'thinking') return;
+        stopSpeaking();
+        resetSession(f);
+        feed.innerHTML = '';
+        say(lines[0]).then(() => alive && setState('idle'));
+      });
+      feed.appendChild(el);
+    };
+
     // 처음 만났으면 인사를 음성으로, 이어서 온 대화면 지난 자막을 그대로 보여 준다
     const fresh = lines.length === 1;
-    if (!fresh) lines.forEach((l) => addLine(l));
+    if (!fresh) {
+      lines.forEach((l) => addLine(l));
+      resumeBar();
+    }
 
     const ask = async (text: string) => {
       lines.push({ mine: true, text });
+      saveSession(f);
       setState('thinking');
       const r = await reply(f, lines);
-      if (!alive) return;
       lines.push(r);
+      saveSession(f); // 화면을 떠났어도 받은 답은 기록에 남긴다
+      if (!alive) return;
       await say(r);
       if (!alive) return;
       setState('idle');

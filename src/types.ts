@@ -55,6 +55,14 @@ export interface Figure {
   /** 진본 초상이 없어 새로 그린 상상 초상 */
   imagined?: boolean;
   sites: { id: string; note: string }[];
+  /** 지식 경계: 세상을 떠난 해 (이 해 이후의 일은 모른다) */
+  died?: number;
+  /** 말씨 지정 (없으면 style 에 따른 기본 말씨) */
+  speech?: string;
+  /** 첫인사 지정 */
+  greet?: string;
+  /** 외부 RAG 서버(historydam backend)에서 쓰는 인물 id (예: jang_yeongsil) */
+  extId?: string;
 }
 
 /** LLM 보강 단계에서 채워질 관련 인물 */

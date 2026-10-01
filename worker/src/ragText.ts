@@ -44,6 +44,17 @@ export function splitChunks(text: string): string[] {
   return out;
 }
 
+/**
+ * 글에 나오는 연도들 — 「1796년」, 「(1796)」, 「1363∼1452」 처럼 연도로 쓰인 4자리 수만 (높이·개수 같은 수는 제외).
+ * 지식 경계 필터에 쓴다: 가장 이른 연도가 인물이 세상을 떠난 뒤라면 그 조각은 인물이 알 수 없는 후세의 기록이다.
+ */
+export function yearsIn(text: string): number[] {
+  const out: number[] = [];
+  const re = /(?<![\d,.])(1\d{3}|20[0-2]\d)(?=\s*년|\)|\s*[~∼–-]\s*\d)|(?<=[~∼–-]\s?)(1\d{3}|20[0-2]\d)(?!\d)/g;
+  for (const m of text.matchAll(re)) out.push(Number(m[1] ?? m[2]));
+  return out;
+}
+
 /** 한글은 2글자 단위(바이그램), 영문·숫자는 단어 단위로 자른다. 한 글자 단어는 그대로 둔다 */
 export function terms(text: string): string[] {
   const out: string[] = [];

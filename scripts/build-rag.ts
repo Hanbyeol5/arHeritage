@@ -7,7 +7,7 @@
  * 벡터 DB 나 임베딩 서버 없이, 무료 Worker 의 짧은 CPU 시간 안에서 검색할 수 있다.
  *
  * 출력
- *   rag/meta.json          조각 수·평균 길이·조각별 [출처 id, 길이]
+ *   rag/meta.json          버전·조각 수·평균 길이·조각별 [출처 id, 길이, 가장 이른 연도, 가장 늦은 연도]
  *   rag/b/<0..255>.json    { 단어: [문서빈도, 조각번호, 빈도, 조각번호, 빈도, …] }
  *   rag/c/<n>.json         조각 본문 묶음 (32개씩)
  *
@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Figure, HeritageDetail, HeritageIndex } from '../src/types.ts';
-import { BUCKETS, GROUP, bucketOf, emptyEdits, splitChunks, terms, type RagEdits } from '../worker/src/ragText.ts';
+import { BUCKETS, GROUP, bucketOf, emptyEdits, splitChunks, terms, yearsIn, type RagEdits } from '../worker/src/ragText.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const DATA = path.join(ROOT, 'public', 'data');
@@ -30,6 +30,12 @@ interface Chunk {
   t: string;
   /** 본문 */
   x: string;
+}
+
+/** 조각에 나오는 가장 이른·늦은 연도 (없으면 0, 0) — Worker 의 지식 경계 필터가 쓴다 */
+function yearRange(text: string): [number, number] {
+  const ys = yearsIn(text);
+  return ys.length ? [Math.min(...ys), Math.max(...ys)] : [0, 0];
 }
 
 async function main() {
@@ -100,7 +106,7 @@ async function main() {
   const avgdl = lens.reduce((a, b) => a + b, 0) / lens.length;
   await writeFile(
     path.join(OUT, 'meta.json'),
-    JSON.stringify({ v, n: chunks.length, avgdl, buckets: BUCKETS, group: GROUP, docs: chunks.map((c, i) => [c.s, lens[i]]) }),
+    JSON.stringify({ v, n: chunks.length, avgdl, buckets: BUCKETS, group: GROUP, docs: chunks.map((c, i) => [c.s, lens[i], ...yearRange(c.x)]) }),
   );
   console.log(`RAG 색인: 조각 ${chunks.length}개 (유적 ${index.items.length}곳 + 인물 ${figures.length}명), 단어 ${postings.size}개, 평균 길이 ${avgdl.toFixed(0)}, 사용자 수정 ${edited}건, 버전 ${v}`);
 }

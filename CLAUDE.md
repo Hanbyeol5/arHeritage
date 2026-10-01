@@ -20,7 +20,7 @@ GitHub Pages 로 배포하고 사용자는 폰으로 접속한다. 사용자와�
 - `scripts/` — 데이터 수집과 RAG 색인 (`data:fetch` → `data:hyangto` → `data:tour` → `data:rag`), 개발 환경 `setup.ps1`/`setup.sh`
 - `public/data/`
   - `index.json` (유적 1,486곳), `detail/<id>.json`
-  - `figures.json` (인물 14명, 수작업)
+  - `figures.json` (인물 16명, 수작업 — `died` 지식 경계, `speech`·`greet`·`extId`)
   - `rag/` (생성물), `rag-edits.json` (편집기가 커밋)
 - `tools/` — 사용법 화면 캡처(`capture-usage.mjs`), 초상 배경 제거(`make-cutout.mjs`). 별도 package.json.
 - `.github/workflows/`
@@ -47,7 +47,7 @@ GitHub Pages 로 배포하고 사용자는 폰으로 접속한다. 사용자와�
 
 ## 남은 작업·결정 대기
 
-- **초상 생성: 효종·인조·세조.** 지금은 인장과 전신 실루엣(`fullBody: king`)으로 표시한다.
+- **초상 생성: 효종·인조·세조·황희·장영실.** 지금은 인장과 전신 실루엣(`fullBody`)으로 표시한다.
   - 이미지를 만든 뒤 `tools/make-cutout.mjs <id> <이미지>` 로 처리한다.
   - 프롬프트는 `docs/SETUP.md` 6절에 있다.
   - Hugging Face 무료 GPU 한도 때문에 보류 중이다.

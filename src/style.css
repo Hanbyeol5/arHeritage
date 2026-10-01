@@ -644,6 +644,12 @@ body.fullscreen .nav { display: none; }
 .tk-line.me b { color: #bfe0d6; text-align: right; }
 .tk-line.sys { align-self: center; text-align: center; }
 .tk-line.sys span { font-size: 12px; font-family: var(--sans); color: rgba(240, 214, 160, 0.85); }
+/* 저장된 대화를 이어 갈 때 */
+.tk-resume { align-self: center; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: rgba(240, 214, 160, 0.85); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.tk-resume button {
+  border: 1px solid rgba(212, 172, 99, 0.6); background: rgba(0, 0, 0, 0.3); color: #f3e2bd;
+  font-size: 11.5px; padding: 3px 10px; border-radius: 12px; text-shadow: none;
+}
 .tk-line.draft span { opacity: 0.75; font-style: italic; }
 .tk-bottom {
   position: relative; flex: none; z-index: 5; padding: 8px 16px calc(22px + var(--safe-b));
@@ -775,3 +781,5 @@ body.fullscreen .nav { display: none; }
 .set-url { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .set-url input { flex: 1; min-width: 0; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); padding: 0 10px; font-size: 12.5px; }
 .set-msg { width: 100%; margin: 0; font-size: 11.5px; color: var(--ink-soft); }
+.set-history { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 4px 0; font-size: 12px; color: var(--ink-soft); }
+.set-history button { flex: 0 0 auto; white-space: nowrap; }

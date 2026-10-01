@@ -1,4 +1,5 @@
 import { josa } from '../ui/josa.ts';
+import { clearSessions, savedRooms } from '../conversation.ts';
 import { app } from '../app.ts';
 import { openBottomSheet } from '../heritageSheet.ts';
 import type { Screen } from '../router.ts';
@@ -109,7 +110,7 @@ function openDiscovery(d: Discovery) {
 const MODES: [ChatMode, string, string][] = [
   ['basic', '기본', '인물에 연결된 유적 자료를 통째로 참고해 답해요.'],
   ['rag', 'RAG 서버 (역사담 내장)', '질문마다 경기도 유적 1,486곳 자료에서 관련 내용을 검색해 답하고, 근거 유적을 보여 줘요.'],
-  ['custom', '외부 RAG 서버 (historydam 호환)', '직접 운영하는 RAG 서버에 질문을 보내요. POST /chat {question} → {answer, referenced_data}'],
+  ['custom', '외부 RAG 서버 (historydam 호환)', '직접 운영하는 RAG 서버에 질문을 보내요. POST /v1/chat (예전 /chat) {figureId, question} → {answer, referenced_data}'],
 ];
 const modeLabel = (m: ChatMode) => MODES.find(([k]) => k === m)![1];
 let settingsOpen = false;
@@ -129,6 +130,14 @@ function settingsCard(): string {
         <button class="pill outline sm set-test">연결 확인</button>
         <p class="set-msg"></p>
       </div>
+      <label class="set-opt">
+        <input type="checkbox" class="set-boundary" ${store.boundary ? 'checked' : ''} />
+        <span><b>지식 경계 필터</b><small>인물은 세상을 떠난 해 이후의 일을 모른다고 답해요. RAG 서버 방식에서는 사후의 기록을 검색에서 빼요. (해설사는 해당 없음)</small></span>
+      </label>
+      <div class="set-history">
+        <span>대화 기록: ${savedRooms() ? `인물 ${savedRooms()}명과의 대화가 이 기기에 저장됨` : '저장된 대화 없음'}</span>
+        ${savedRooms() ? '<button class="pill outline sm danger set-clear">모두 지우기</button>' : ''}
+      </div>
     </div>
   </details>`;
 }
@@ -142,6 +151,12 @@ function bindSettings(root: HTMLElement) {
     r.addEventListener('change', () => store.setChat(r.value as ChatMode, url.value)),
   );
   url.addEventListener('change', () => store.setChat('custom', url.value));
+  box.querySelector<HTMLInputElement>('.set-boundary')!.addEventListener('change', (e) => store.setBoundary((e.target as HTMLInputElement).checked));
+  box.querySelector('.set-clear')?.addEventListener('click', () => {
+    if (!confirm('모든 인물과의 대화 기록을 지울까요?')) return;
+    clearSessions();
+    store.setBoundary(store.boundary); // 다시 그리기
+  });
   box.querySelector('.set-test')!.addEventListener('click', async () => {
     store.setChat('custom', url.value);
     const base = url.value.trim().replace(/\/+$/, '');
@@ -150,7 +165,16 @@ function bindSettings(root: HTMLElement) {
     if (location.protocol === 'https:' && base.startsWith('http:')) return void (m.textContent = 'HTTPS 웹앱에서는 http 서버를 부를 수 없어요 (혼합 콘텐츠 차단).');
     m.textContent = '확인 중…';
     try {
-      const res = await fetch(`${base}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: '안녕하세요' }) });
+      // historydam 새 주소 /v1/chat (figureId 필수)을 먼저, 없으면 예전 /chat
+      const call = (path: string) =>
+        fetch(`${base}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ figureId: 'sejong', question: '안녕하세요' }),
+          signal: AbortSignal.timeout(60_000),
+        });
+      let res = await call('/v1/chat');
+      if (res.status === 404 || res.status === 405) res = await call('/chat');
       const data = (await res.json()) as { answer?: string };
       m.textContent = res.ok && data.answer ? `✅ 연결됨 — "${data.answer.slice(0, 40)}…"` : `⚠️ 응답 형식이 달라요 (${res.status})`;
     } catch {

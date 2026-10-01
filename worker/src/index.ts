@@ -44,6 +44,10 @@ interface Figure {
   voice?: string;
   bio: string;
   sites: { id: string; note: string }[];
+  /** 지식 경계: 세상을 떠난 해 */
+  died?: number;
+  /** 말씨 지정 */
+  speech?: string;
 }
 interface Detail {
   id: string;
@@ -102,15 +106,32 @@ const ChatBody = z.object({
   lines: z
     .array(z.object({ mine: z.boolean(), text: z.string(), system: z.boolean().optional() }))
     .max(80),
+  /** 지식 경계 필터 (기본 켬): 인물이 세상을 떠난 뒤의 일은 모르게 한다 */
+  boundary: z.boolean().optional(),
 });
 
+/**
+ * 지식 경계 (historydam 「지식 경계 필터」와 같은 생각): 인물은 자신이 세상을 떠난 해 이후의 일을 모른다.
+ * 켜 두면 후세의 일은 짐작하지 않고 모른다고 답하며, /rag 검색에서도 사후의 기록은 빼거나 「후세 기록」으로 표시한다.
+ */
+function diedYear(f: Figure): number | undefined {
+  return f.died ?? (Number(f.years.match(/(\d{4})\s*$/)?.[1]) || undefined);
+}
+function boundaryRule(f: Figure, on: boolean): string {
+  const d = diedYear(f);
+  if (!on || !d) return `- ${f.years} 이후의 일은 겪지 못했으므로, 후대의 일을 물으면 "내가 떠난 뒤의 일은 알지 못하네"처럼 답하되 필요하면 짧게 짐작을 덧붙인다.`;
+  return `- [지식 경계] 너는 ${d}년에 세상을 떠났다. ${d}년 이후의 사건·인물·제도·기술(후대의 왕과 전쟁, 근현대사, 오늘날의 문물 등)은 전혀 알지 못한다. 그런 것을 물으면 짐작하거나 지어내지 말고, "내가 살아 있을 적에는 들어보지 못한 후세의 일이로다"처럼 네 말씨로 모른다고 답한 뒤 네가 살던 때의 이야기로 돌린다.
+- 근거 자료에 ${d}년 이후의 일(후손이 세운 비석·사당, 이장·복원, 문화유산 지정 등)이 섞여 있어도 네가 겪은 일처럼 말하지 않는다. 지금 방문객이 서 있는 이곳에 관한 것이라면 "후세 사람들이 그리 전한다 들었네"처럼 전해 들은 이야기로만 짧게 말한다.`;
+}
+
 function speechStyle(f: Figure): string {
+  if (f.speech) return f.speech;
   if (f.style === 'lady') return '온화하고 품위 있는 존댓말(예: "~했지요", "~이랍니다")';
   if (f.style === 'king') return '위엄 있되 부드러운 말씨(예: "~했다네", "~이지", 방문객을 "그대"라 부름). "~하노라" 같은 사극 어미는 한 답에 한 번 이하로만';
   return '점잖은 어른의 말씨(예: "~했다네", "~이지", 방문객을 "자네"라 부름). 사극 어미는 한 답에 한 번 이하로만';
 }
 
-async function systemPrompt(f: Figure, env: Env, siteId?: string): Promise<string> {
+async function systemPrompt(f: Figure, env: Env, siteId?: string, boundary = true): Promise<string> {
   const details = await Promise.all(
     f.sites.map((s) => fetchJson<Detail>(`${env.SITE_BASE}data/detail/${s.id}.json`).catch(() => undefined)),
   );
@@ -137,7 +158,7 @@ ${sources || '(없음)'}
 - 문장은 소리 내어 읽기 좋게 짧게 끊고, 책 이름 겹낫표·따옴표·특수 기호는 쓰지 않는다.
 - 답은 음성으로 읽히므로 2~4문장, 180자 안팎으로 짧게 말한다. 목록·마크다운·이모지·괄호 설명은 쓰지 않는다.
 - 사실은 위 사료와 널리 알려진 역사에 근거한다. 모르거나 기록이 불확실한 것은 지어내지 말고 "그 일은 기록이 분명치 않네"처럼 솔직히 말한다.
-- ${f.years} 이후의 일은 겪지 못했으므로, 후대의 일을 물으면 "내가 떠난 뒤의 일은 알지 못하네"처럼 답하되 필요하면 짧게 짐작을 덧붙인다.
+${boundaryRule(f, boundary)}
 - 역사 인물로서의 인격을 지키고, 인물과 무관한 요청(코드 작성, 다른 역할 연기 등)은 정중히 사양하고 이야기를 유적과 역사로 돌린다.
 - 방문객이 짧게 말하면 되물어 대화를 이어 가도 좋다.
 ${here ? `- 방문객은 지금 '${here.name}' 근처에 있다.` : ''}
@@ -170,7 +191,7 @@ async function chat(req: Request, env: Env, client: Anthropic) {
   const guideSite = body.figureId.startsWith('guide:') ? body.figureId.slice(6) : undefined;
   const f = figures.find((x) => x.id === body.figureId);
   if (!f && !guideSite) throw new HttpError(404, '인물을 찾을 수 없습니다.');
-  const system = guideSite ? await guidePrompt(guideSite, env) : await systemPrompt(f!, env, body.siteId);
+  const system = guideSite ? await guidePrompt(guideSite, env) : await systemPrompt(f!, env, body.siteId, body.boundary ?? true);
 
   // 안내 문구는 빼고, 인물의 첫 인사는 system 에 넣어 첫 메시지가 user 가 되게 한다
   const lines = body.lines.filter((l) => !l.system && l.text.trim()).slice(-MAX_TURNS);
@@ -214,7 +235,8 @@ interface RagMeta {
   n: number;
   avgdl: number;
   group: number;
-  docs: [string, number][];
+  /** [출처 id, 길이, 가장 이른 연도, 가장 늦은 연도] (연도 없으면 0) */
+  docs: [string, number, number?, number?][];
 }
 interface RagChunk {
   s: string;
@@ -245,7 +267,20 @@ function ragMeta(base: string): Promise<RagMeta> {
   return safe;
 }
 
-async function retrieve(env: Env, query: string, boost: Map<string, number>, must: string[]): Promise<{ i: number; c: RagChunk }[]> {
+/** 지식 경계: 이 해 이후의 기록만 담긴 조각은 빼고(own 출처는 남겨 「후세 기록」으로 표시), 섞인 조각은 표시만 한다 */
+interface Boundary {
+  died: number;
+  own: Set<string>;
+}
+type Era = 'late' | 'mixed';
+
+async function retrieve(
+  env: Env,
+  query: string,
+  boost: Map<string, number>,
+  must: string[],
+  limit?: Boundary,
+): Promise<{ i: number; c: RagChunk; era?: Era }[]> {
   const base = `${env.SITE_BASE}data/rag/`;
   const meta = await ragMeta(base);
   const ver = meta.v ? `?v=${meta.v}` : '';
@@ -272,6 +307,13 @@ async function retrieve(env: Env, query: string, boost: Map<string, number>, mus
   }
   // 대화 상대와 연결된 유적·인물 조각에 가중치
   for (const [i, s] of scores) scores.set(i, s * (boost.get(meta.docs[i][0]) ?? 1));
+  // 지식 경계 필터: 인물이 세상을 떠난 뒤의 일만 적힌 조각은 검색에서 뺀다 (이 인물의 유적 조각은 「후세 기록」으로 남김)
+  const eraOf = (i: number): Era | undefined => {
+    if (!limit) return undefined;
+    const [, , yMin = 0, yMax = 0] = meta.docs[i];
+    return yMin > limit.died ? 'late' : yMax > limit.died ? 'mixed' : undefined;
+  };
+  if (limit) for (const i of [...scores.keys()]) if (eraOf(i) === 'late' && !limit.own.has(meta.docs[i][0])) scores.delete(i);
   // 꼭 넣을 조각 (인물 소개 / 해설사가 안내하는 유적의 첫 조각)
   const mustIdx = must.map((src) => meta.docs.findIndex(([s]) => s === src)).filter((i) => i >= 0);
   const top = [...new Set([...mustIdx, ...[...scores].sort((a, b) => b[1] - a[1]).map(([i]) => i)])].slice(0, TOP_K);
@@ -281,7 +323,7 @@ async function retrieve(env: Env, query: string, boost: Map<string, number>, mus
       [...new Set(top.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json${ver}`)] as const),
     ),
   );
-  return top.map((i) => ({ i, c: groups.get(Math.floor(i / meta.group))![i % meta.group] }));
+  return top.map((i) => ({ i, c: groups.get(Math.floor(i / meta.group))![i % meta.group], era: eraOf(i) }));
 }
 
 async function rag(req: Request, env: Env, client: Anthropic) {
@@ -308,13 +350,15 @@ async function rag(req: Request, env: Env, client: Anthropic) {
     boost.set(guideSite!, 2);
     must.push(guideSite!);
   }
-  const found = await retrieve(env, `${question} ${prevQ}`, boost, must);
+  const died = f && (body.boundary ?? true) ? diedYear(f) : undefined;
+  const limit = died ? { died, own: new Set(f!.sites.map((x) => x.id)) } : undefined;
+  const found = await retrieve(env, `${question} ${prevQ}`, boost, must, limit);
 
   const persona = f
     ? `너는 역사 인물 ${f.name}(${f.hanja}, ${f.title}, ${f.years})이다. 유적지를 찾은 방문객과 얼굴을 마주 보고 이야기하는 AR 앱 '역사담'에서, ${f.name} 본인으로서 1인칭으로 대화한다.
 [인물 소개] ${f.bio}
 - 말씨: ${speechStyle(f)}. 옛 어른이 오늘날 사람에게 차분히 이야기하듯 자연스러운 우리말로.
-- ${f.years} 이후의 일은 "내가 떠난 뒤의 일"로 말한다.`
+${boundaryRule(f, body.boundary ?? true)}`
     : `너는 AR 앱 '역사담'의 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서 친절한 존댓말로 유적을 안내한다.`;
   const system = `${persona}
 
@@ -329,10 +373,11 @@ async function rag(req: Request, env: Env, client: Anthropic) {
     role: l.mine ? 'user' : 'assistant',
     content: l.text.slice(0, MAX_CHARS),
   }));
-  const documents: Anthropic.Beta.BetaRequestDocumentBlock[] = found.map(({ c }) => ({
+  const documents: Anthropic.Beta.BetaRequestDocumentBlock[] = found.map(({ c, era }) => ({
     type: 'document',
     source: { type: 'text', media_type: 'text/plain', data: c.x },
-    title: c.t,
+    // 지식 경계: 사후의 기록이 담긴 문서는 제목으로 알려 준다 (인물은 전해 들은 이야기로만 말함)
+    title: era === 'late' ? `${c.t} (후세 기록: ${died}년 이후)` : era === 'mixed' ? `${c.t} (${died}년 이후 기록 일부 포함)` : c.t,
     citations: { enabled: true },
   }));
 

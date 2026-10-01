@@ -98,7 +98,7 @@ MSYS_NO_PATHCONV=1 BASE_PATH=/arHeritage/ npm run build
 
 배포 상태: `https://github.com/samcho93/arHeritage/actions`
 
-## 6. 인물 초상 만들기 (남은 작업: 효종·인조·세조)
+## 6. 인물 초상 만들기 (남은 작업: 효종·인조·세조·황희·장영실)
 
 초상이 없는 인물은 인장·전신 실루엣으로 표시됩니다.
 

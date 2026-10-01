@@ -34,10 +34,12 @@ interface StoreData {
   nickname: string;
   chatMode: ChatMode;
   ragUrl: string;
+  /** 지식 경계 필터: 인물이 세상을 떠난 뒤의 일은 모르게 (historydam 과 같은 기능) */
+  boundary: boolean;
 }
 
 const KEY = 'yeoksadam:v2';
-const empty = (): StoreData => ({ discoveries: [], notifications: [], nickname: '나그네', chatMode: 'basic', ragUrl: '' });
+const empty = (): StoreData => ({ discoveries: [], notifications: [], nickname: '나그네', chatMode: 'basic', ragUrl: '', boundary: true });
 
 function load(): StoreData {
   try {
@@ -75,6 +77,13 @@ export const store = {
   },
   get ragUrl() {
     return data.ragUrl;
+  },
+  get boundary() {
+    return data.boundary;
+  },
+  setBoundary(on: boolean) {
+    data.boundary = on;
+    save();
   },
   setChat(mode: ChatMode, url?: string) {
     data.chatMode = mode;
