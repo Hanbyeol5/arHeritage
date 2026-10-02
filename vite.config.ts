@@ -33,8 +33,9 @@ export default defineConfig({
       },
       workbox: {
         // 편집기는 오프라인 캐시·앱 화면 대체에서 뺀다
-        globIgnores: ['editor/**', '**/editor-*.js', '**/editor-*.css'],
-        navigateFallbackDenylist: [/\/editor\//],
+        // 편집기·앱(APK) 내려받기 페이지는 오프라인 캐시·앱 화면 대체에서 뺀다
+        globIgnores: ['editor/**', '**/editor-*.js', '**/editor-*.css', 'app/**'],
+        navigateFallbackDenylist: [/\/editor\//, /\/app\//],
         globPatterns: ['**/*.{js,css,html,svg}', 'data/index.json', 'data/figures.json', 'figures/*'],
         runtimeCaching: [
           {
