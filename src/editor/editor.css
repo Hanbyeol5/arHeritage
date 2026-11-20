@@ -129,3 +129,15 @@ code { font-size: 12px; background: var(--paper-2); padding: 1px 5px; border-rad
   .ed-pane { padding: 12px 16px 48px; }
   .ed-pane .back { display: inline-block; margin-bottom: 8px; padding-left: 0; }
 }
+
+/* 탭 (RAG 자료 · 외부 RAG 인물 설정) */
+.ed-tabs { display: flex; gap: 2px; background: var(--paper-2); border-radius: 999px; padding: 3px; }
+.ed-tabs button { border: 0; background: none; border-radius: 999px; padding: 6px 12px; font-size: 12.5px; color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+.ed-tabs button.on { background: var(--card); color: var(--cinnabar); font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.fld.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.fld.two input { width: 100%; }
+.ph h2 small { font-family: var(--sans, inherit); font-size: 13px; color: var(--muted); font-weight: 400; margin-left: 6px; }
+@media (max-width: 640px) {
+  .fld.two { grid-template-columns: 1fr; }
+  .ed-tabs { order: 3; width: 100%; justify-content: center; }
+}

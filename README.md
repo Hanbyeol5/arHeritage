@@ -8,7 +8,7 @@
 
 - 배포 주소: **https://samcho93.github.io/arHeritage/**
 - 대화·음성·인식 서버: **https://yeoksadam-api.samdori93.workers.dev**
-- RAG 자료 편집기(관리자용, 웹앱에 링크 없음): **https://samcho93.github.io/arHeritage/editor/**
+- RAG 자료 편집기(관리자용, 웹앱에 링크 없음): **[https://samcho93.github.io/arHeritage/editor/](https://samcho93.github.io/arHeritage/editor/)** — [사용법](#rag-editor-usage)
 - 디자인 원본: Android 앱 [historydam(역사담)](https://github.com/Hanbyeol5/historydam)의 화면 목업(단청·한지 테마, 8개 화면)
 
 ---
@@ -24,6 +24,7 @@
 7. [위치 기반 AR](#7-위치-기반-ar)
 8. [지도 (네이버 지도)](#8-지도-네이버-지도)
 9. [역사 인물·해설사 대화 (RAG 서버 선택 포함)](#9-역사-인물해설사-대화)
+   - [RAG 자료 편집기 사용법](#rag-editor-usage)
 10. [음성 (말하기·듣기)](#10-음성-말하기듣기)
 11. [유물·건물 인식 카메라](#11-유물건물-인식-카메라)
 12. [인물 초상과 AR 컷아웃](#12-인물-초상과-ar-컷아웃)
@@ -50,7 +51,7 @@
 | **대화 기록 보존** | 인물별 대화가 기기에 저장되어 다시 들어가면 이어짐, 「새로 시작」·설정에서 모두 지우기 |
 | **지식 경계 필터** | 인물은 세상을 떠난 해 이후의 일을 모른다고 답함, RAG 검색에서도 사후 기록 제외 (설정에서 켜고 끄기) |
 | **대화 방식 선택 (RAG)** | 메뉴 설정에서 기본 / **RAG 서버(역사담 내장: 질문마다 유적 자료 검색 + 근거 표시)** / 외부 RAG 서버(historydam 호환) 선택 |
-| **RAG 자료 편집기** | 웹앱과 분리된 `/editor/` 페이지에서 RAG 자료를 고치기·빼기·추가 → GitHub 에 반영하면 색인이 다시 만들어져 대화에 쓰임 |
+| **RAG 자료 편집기** | 웹앱과 분리된 `/editor/` 페이지에서 RAG 자료를 고치기·빼기·추가, 외부 RAG(앱 백엔드 RAG) 인물 설정 편집 → 「서버에 저장」하면 1분 안에 대화에 쓰임 |
 | **지도** | 네이버 지도에 인물 핑·유적 핀·내 위치, 「○○까지 걷기 · 도보 N분」, [찾기] → AR |
 | **유물·건물 인식** | 촬영 → 주변 국가유산 후보 + Claude 비전 판별 → 국가유산청 공식 설명으로 보강, 후보로 보정, 음성 해설 |
 | **모든 인물** | 가나다순(초성 색인)·주변 순, 검색, 미발견 인물은 잠긴 메달 |
@@ -106,7 +107,8 @@ flowchart LR
   VIS --> CLAUDE
   TTS --> AZURE
   CHAT -- 인물·유적 JSON --> PAGES
-  ED -- "rag-edits.json 커밋<br/>(GitHub REST API)" --> ACT
+  ED -- "서버에 저장<br/>PUT /doc · /store/personas.json<br/>(업로드 키)" --> RAG
+  RAG -- "업로드 문서·인물 설정<br/>(1분마다 확인)" --> KV[("Cloudflare KV<br/>서버 저장소")]
   ED -. "대화로 확인" .-> RAG
   ACT -- "빌드·배포<br/>(data:rag 색인 재생성)" --> PAGES
   ACT -- wrangler 배포 --> CF
@@ -175,8 +177,8 @@ flowchart TD
   I --> APP
   I -->|build-rag.ts| RG["public/data/rag/<br/>BM25 색인 256 + 본문 71 + meta"]
   F -->|build-rag.ts| RG
-  E["public/data/rag-edits.json<br/>(RAG 자료 편집기 수정 사항)"] -->|build-rag.ts<br/>글 바꾸기·제외·추가| RG
   RG --> APP
+  E["서버 저장소 rag 문서 (.md)<br/>편집기·폰 관리자 모드"] -->|Worker /rag 가 함께 검색| APP
 ```
 
 ---
@@ -201,7 +203,7 @@ flowchart TD
 | 서버 | **Cloudflare Workers** + **wrangler** | API 키 보관·중계 (`worker/src/index.ts`) |
 | 입력 검증 | **zod** | Worker 요청 검증, 비전 구조화 출력 스키마 |
 | 검색 (RAG) | **BM25** (한글 바이그램 역색인, 정적 분할 파일) + Claude **citations** | `scripts/build-rag.ts`, `worker/src/ragText.ts`, Worker `/rag` |
-| RAG 자료 편집 | **GitHub REST API** (Contents) + fine-grained 토큰 | `src/editor/main.ts` — `rag-edits.json` 커밋 → 배포 워크플로가 색인 재생성 |
+| 서버 저장소 | **Cloudflare Workers KV** + 업로드 키 | `worker/src/store.ts` — 3D 모델(.glb)·RAG 자료(.md)·외부 RAG 인물 설정. 편집기·폰 관리자 모드가 저장, `/rag` 가 기존 색인과 함께 검색 |
 | 데이터 수집 | Node.js 24 + **tsx**, **fast-xml-parser** | `scripts/*.ts` |
 | 호스팅 | **GitHub Pages** | 정적 웹앱·데이터 JSON |
 | CI/CD | **GitHub Actions** | Pages 배포, Worker 배포, 월간 데이터 갱신 |
@@ -227,13 +229,12 @@ arHeritige/
 │     ├─ index.json           지도·AR용 유적 목록(1,486곳, 경량)
 │     ├─ detail/<id>.json     유적 상세(설명·사진·주소·전화)
 │     ├─ figures.json         역사 인물(초상·목소리·관련 유적)
-│     ├─ rag-edits.json       RAG 자료 편집기의 수정 사항 (글 바꾸기·제외·추가)
 │     └─ rag/                 RAG 검색 색인 (meta.json, b/0~255.json, c/0~70.json)
 ├─ scripts/                   데이터 수집 (빌드 시점)
 │  ├─ fetch-heritage.ts       국가유산청 오픈API → index/detail
 │  ├─ fetch-hyangto.ts        공공데이터포털 향토유산 → index/detail(hy-*)
 │  ├─ import-tour.ts          경기도 역사관광지 → 중복 대조·생가 추가(tr-*)
-│  └─ build-rag.ts            유적 설명·인물 소개 + rag-edits.json → RAG 색인(public/data/rag)
+│  └─ build-rag.ts            유적 설명·인물 소개 → RAG 색인(public/data/rag). 사람이 고친 자료는 서버 저장소에서 Worker 가 겹쳐 검색
 ├─ data/경기도역사관광지현황.json   역사관광지 원본(경기데이터드림)
 ├─ src/
 │  ├─ main.ts                 하단 5탭, 라우팅, 시작 화면, 전체 화면·오디오 잠금 해제
@@ -476,7 +477,7 @@ flowchart LR
 | ③ 역색인 | `단어 → [문서빈도, 조각번호, 빈도, …]` 를 FNV-1a 해시로 **256개 파일**(`rag/b/<n>.json`, 평균 7KB)에 분산 |
 | ④ 본문 | 조각 본문을 32개씩 묶어 `rag/c/<n>.json` (71개 파일) |
 | ⑤ 메타 | `rag/meta.json` — **버전 `v`**(조각 내용의 SHA-1 앞 12자리), 조각 수, 평균 길이, 조각별 `[출처 id, 길이]` |
-| ⑥ 사용자 수정 | `public/data/rag-edits.json` 을 먼저 읽어 글 바꾸기(overrides)·제외(hidden)·추가(extra)를 반영 ([9.3.5](#935-rag-자료-편집기-editor-웹앱과-분리된-관리-도구)) |
+| ⑥ 사용자 수정 | 색인에는 넣지 않고, Worker 가 서버 저장소의 문서(글 바꾸기·제외·추가)를 검색할 때 겹쳐 씀 ([9.3.5](#935-rag-자료-편집기-editor-웹앱과-분리된-관리-도구)) |
 
 현재 규모: 조각 **2,261개**, 단어 **25,213개**, 전체 약 4MB. 월간 데이터 갱신 때 `npm run data:rag` 로 다시 만듭니다.
 
@@ -552,7 +553,7 @@ BM25 는 표현이 다른 질문(동의어·의역)에 약합니다. 의미 검�
 
 #### 9.3.5 RAG 자료 편집기 (`/editor/`, 웹앱과 분리된 관리 도구)
 
-RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 페이지입니다. **웹앱 메뉴에는 링크가 없고**, 아래 주소로만 들어갑니다 (검색엔진 색인 제외 `noindex`, 앱 오프라인 캐시에서도 제외).
+RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 페이지입니다. 고친 내용은 **서버 저장소**(Worker + Cloudflare KV)에 Markdown 문서로 저장됩니다 ([docs/SERVER-STORAGE.md](docs/SERVER-STORAGE.md)). **웹앱 메뉴에는 링크가 없고**, 아래 주소로만 들어갑니다 (검색엔진 색인 제외 `noindex`, 앱 오프라인 캐시에서도 제외).
 
 - 배포본: `https://samcho93.github.io/arHeritage/editor/`
 - 로컬: `http://localhost:5173/editor/`
@@ -560,54 +561,88 @@ RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 �
 | 기능 | 설명 |
 |---|---|
 | 자료 찾기 | 유적 1,486곳·인물 16명을 이름·시군·id 로 검색, 종류별(국가유산·향토유산·역사관광지·인물)·「수정·추가·제외」 필터 |
-| 글 바꾸기 | 원문(국가유산청 설명·인물 소개)을 불러와 고치거나 사실·일화를 덧붙임. 원문과 같아지면 자동으로 「원문」 상태, 「원문으로 되돌리기」 |
-| RAG 에서 제외 | 대화에 섞이면 안 되는 자료를 검색 대상에서 뺌 |
-| 새 자료 추가 | 제목·내용을 쓰고 유적·인물에 **연결**(선택). 연결하면 그 인물·유적과 대화할 때 가중치를 받고 📚 근거 버튼이 그 유적 카드로 이어짐. 연결이 없으면 독립 자료(`u:<id>`, 근거에 이름만 표시) |
+| 글 바꾸기 | 원문(국가유산청 설명·인물 소개)을 불러와 고치거나 사실·일화를 덧붙임 → 서버 문서 `<이름> 고침.md` (`대상: <id>`). 「원문으로 되돌리기」는 그 문서를 지움 |
+| RAG 에서 제외 | 대화에 섞이면 안 되는 자료를 검색 대상에서 뺌 → `대상: <id>` + `제외: 예` 문서 |
+| 새 자료 추가 | 제목·내용·출처·연도를 쓰고 유적·인물에 **연결**(선택) → 서버 문서 `<제목>.md`. 연결하면 그 인물·유적과 대화할 때 가중치를 받고 📚 근거 버튼이 그 유적 카드로 이어짐. 연도는 지식 경계 필터에 쓰임 |
+| 외부 RAG 인물 설정 | 탭을 바꿔 Android 앱 **백엔드 RAG**(기본 대화 방식)가 쓰는 인물 설정(이름·시대·지식 경계 연도·검색어·신분·말투 지침)을 고침 → `/store/personas.json`. 고치지 않은 인물은 앱 기본값 |
 | 조각 미리보기 | 저장될 글이 몇 개의 RAG 조각(최대 500자, 빈 줄 기준)으로 나뉘는지 바로 보여 줌 |
-| 대화로 확인 | 배포된 Worker `/rag` 에 질문해 답변·인용 근거·검색된 조각 확인 (반영 완료된 자료 기준) |
+| 대화로 확인 | Worker `/rag` 에 질문해 답변·인용 근거·검색된 조각 확인 (서버에 저장된 자료 기준) |
 | 초안 자동 저장 | 작업 내용은 브라우저에 초안으로 저장되어 새로 고쳐도 이어짐 |
-| GitHub 에 반영 | GitHub API 로 `public/data/rag-edits.json` 을 커밋 |
-| 파일로 주고받기 | 토큰이 없을 때 작업본을 `rag-edits.json` 으로 내려받기·불러오기 |
+| 서버에 저장 | 바뀐 항목만 Worker `PUT/DELETE /doc/<이름>.md`·`PUT /store/personas.json` 으로 저장 (업로드 키 필요) |
+| 파일로 주고받기 | 업로드 키가 없을 때 작업본을 JSON 으로 내려받아 관리자에게 넘김 (예전 `rag-edits.json` 도 불러올 수 있음) |
 
-**수정 파일 형식** — 원본 데이터는 그대로 두고 이 파일 하나에만 차이를 모읍니다.
+<a id="rag-editor-usage"></a>
 
-```json
-{
-  "updatedAt": "2026-09-27T09:00:00.000Z",
-  "overrides": { "13-0000570000000-31": "고친 남한산성 설명…", "fig:injo": "고친 인조 소개…" },
-  "hidden": ["hy-…"],
-  "extra": [{ "id": "muj5ptp9", "title": "수어장대 일화", "link": "13-0000570000000-31", "text": "…" }]
-}
+**사용법**
+
+준비 (처음 한 번)
+1. PC 브라우저로 **[https://samcho93.github.io/arHeritage/editor/](https://samcho93.github.io/arHeritage/editor/)** 를 엽니다. 폰에서도 열리지만 PC 를 권장합니다.
+2. 오른쪽 위 **업로드 키** 를 누르고 관리자에게 받은 키를 넣습니다.
+   - 공용 PC 에서는 「기억하기」를 끕니다.
+   - 키가 없어도 편집과 「대화로 확인」은 됩니다. 저장만 안 됩니다.
+
+유적·인물 글 고치기 (**RAG 자료** 탭)
+1. 왼쪽 검색창에 유적·인물 이름이나 시군을 입력하고 목록에서 고릅니다.
+   - 오른쪽 선택 상자로 종류(국가유산·향토유산·역사관광지·인물)나 「수정·추가·제외」만 거를 수 있습니다.
+2. **RAG 에 들어갈 글** 에서 틀린 내용을 고치거나 사실·일화를 덧붙입니다.
+   - 빈 줄로 문단을 나누면 조각도 나뉩니다.
+   - 아래 미리보기에서 조각 수와 길이를 확인합니다.
+3. 대화에 쓰이면 안 되는 자료는 **RAG 에서 제외** 를 켭니다.
+4. 원래 글로 돌아가려면 **원문으로 되돌리기** 를 누릅니다.
+
+새 자료 추가
+1. **+ 새 자료 추가** 를 누릅니다. 특정 유적·인물 화면의 **+ 이 유적에 연결된 자료 추가** 를 누르면 연결까지 미리 채워집니다.
+2. **제목**(= 서버 문서 이름), **연결할 유적·인물**(선택), **출처**, **연도**, **내용** 을 씁니다.
+   - 연도(예: `1592` 또는 `1592-1598`)를 적으면 지식 경계 필터가 인물 사후의 자료를 거릅니다.
+3. 필요 없어진 자료는 **이 자료 삭제** 를 누릅니다.
+
+외부 RAG 인물 설정 (**외부 RAG 인물 설정** 탭)
+1. 위쪽 탭을 바꾸고 인물을 고릅니다.
+2. 이름·시대·지식 경계 연도(세상을 떠난 해)·검색어·신분·말투 지침을 고칩니다.
+   - Android 앱의 기본 대화 방식인 **백엔드 RAG** 와 외부 RAG 서버(`backend/main.py`)가 이 설정으로 인물을 연기합니다.
+3. 앱 기본값으로 돌아가려면 **기본값으로 되돌리기** 를 누릅니다.
+
+저장과 확인
+1. 위쪽 상태 표시에서 「저장 안 한 변경 N건」을 확인합니다. 작업은 브라우저에 초안으로 자동 저장됩니다.
+2. **서버에 저장** 을 누릅니다. 바뀐 항목만 저장되고 결과 알림이 뜹니다.
+3. 1분쯤 뒤 자료 화면 아래 **🗨 대화로 확인** 을 펼쳐 질문하고, 답변과 「인용된 근거」·「검색된 조각」에 고친 글이 쓰였는지 봅니다.
+4. 키가 없는 사람은 **파일 → 작업본 내려받기** 로 받은 JSON 을 관리자에게 보냅니다. 관리자는 **파일 불러오기** 뒤 저장합니다.
+
+폰에서 `.md` 파일로 올리기
+- Android 앱 프로필의 **🗄 서버 저장소 (관리자)** 카드에서 RAG 자료 폴더를 지정하면, 폴더 안의 `.md` 를 같은 서버 저장소에 올릴 수 있습니다.
+- 편집기에서 만든 문서와 같은 형식이라 서로 이어서 고칠 수 있습니다.
+
+**서버 문서 형식** — 폰 앱(관리자 모드)에서 올리는 `.md` 와 같습니다.
+
+```markdown
+출처: 난중일기
+연도: 1592-1598
+연결: 이순신            ← (선택) 이 인물·유적의 자료로. 없으면 파일 이름과 같은 인물·유적에 연결
+대상: 수원 화성          ← (선택) 이 유적의 원문을 이 문서로 대체
+제외: 예                ← (선택) 대상 유적을 검색에서 뺌
+---
+본문 …
 ```
 
-**반영 흐름**
+**반영 흐름** — GitHub 커밋·재배포 없이 1분 안에 대화에 쓰입니다.
 
 ```mermaid
 sequenceDiagram
-  participant E as 편집기 (/editor/)
-  participant G as GitHub API
-  participant A as Deploy to GitHub Pages
-  participant P as GitHub Pages
-  participant W as Worker /rag
-  E->>G: rag-edits.json 최신본 읽기 (sha)
-  E->>E: 내가 바꾼 항목만 최신본 위에 덮어쓰기 (다른 사람의 변경 유지)
-  E->>G: PUT contents (커밋)
-  G->>A: main push 로 배포 시작
-  A->>A: npm run data:rag (수정 반영해 색인 재생성, 버전 해시 갱신)
-  A->>P: 빌드 결과 게시 (약 2~3분)
-  W->>P: 1분마다 rag/meta.json 버전 확인
-  W->>W: 버전이 바뀌면 옛 색인 캐시 비우고 새 색인 사용
+  participant E as 편집기 /editor/ · 폰 관리자 모드
+  participant W as Worker
+  participant K as Cloudflare KV (STORE)
+  E->>W: PUT /doc/<이름>.md (X-Upload-Key)
+  W->>W: 머리말 검사 · 대상·연결 이름 → id
+  W->>K: doc:<열쇠> 저장 · idx:docs 갱신
+  Note over W: /rag 는 1분마다 idx:docs 를 확인
+  W->>K: 바뀌었으면 문서를 읽어 조각·단어 빈도 계산
+  W->>W: 기존 색인(GitHub Pages) + 업로드 조각을 함께 BM25 검색<br/>대상 유적은 원문 대신 고친 글
 ```
 
-**GitHub 토큰 준비 (처음 한 번)** — 편집기의 「GitHub 설정」에 넣습니다.
+**업로드 키** — 편집기의 「업로드 키」에 넣습니다. Worker 비밀값 `UPLOAD_KEY` 와 같은 값이며 관리자가 나눠 줍니다(로컬 사본: `worker/.dev.vars`, git 제외). 기본은 탭을 닫으면 지워지는 세션 저장이고, 「기억하기」를 켜야 이 브라우저에 남습니다.
 
-1. GitHub → Settings → Developer settings → **Fine-grained tokens** → Generate new token
-2. Repository access: **Only select repositories** → `arHeritage`
-3. Permissions → Repository permissions → **Contents: Read and write** (그 밖의 권한은 필요 없음)
-4. 편집기에 붙여 넣기. 기본은 브라우저 탭을 닫으면 지워지는 세션 저장이며, 「기억하기」를 켜야 이 브라우저에 남습니다. 토큰은 GitHub API 로만 전송됩니다.
-
-> 편집기는 누구나 열 수 있지만 **반영은 저장소 쓰기 권한이 있는 토큰으로만** 됩니다. 토큰이 없는 사람은 「파일로 주고받기」로 작업본을 넘기면 됩니다.
-> 수정은 **RAG 서버** 대화 방식에만 쓰이며, 「기본」 방식과 유적 상세 카드의 설명은 원문 그대로입니다.
+> 편집기는 누구나 열 수 있지만 **저장은 업로드 키로만** 됩니다.
+> 고친 글은 **RAG 서버** 방식과 **기본** 방식(인물 소개·연결 유적 설명)에 쓰이고, 인물에 연결한 자료는 Android **백엔드 RAG** 의 참고 자료에도 들어갑니다. 유적 상세 카드의 설명은 원문 그대로입니다.
 
 ### 9.4 historydam 업데이트 반영 — 인물 추가·대화 기록·지식 경계
 
@@ -765,7 +800,7 @@ npm run dev                         # http://localhost:5173
 
 - 실내·PC 테스트: `http://localhost:5173/?lat=37.2818&lng=127.0137#/home` 처럼 **위치를 고정**할 수 있습니다 (수원 화성행궁). 시작 화면의 「데모 위치」도 같은 좌표.
 - AR 화면은 PC 에서 드래그·←/→ 키로 방향을 돌려 볼 수 있습니다.
-- RAG 자료 편집기: `http://localhost:5173/editor/`. 편집한 내용을 로컬 색인에 반영해 보려면 편집기의 「파일 → 작업본 내려받기」로 받은 파일을 `public/data/rag-edits.json` 에 두고 `npm run data:rag`.
+- RAG 자료 편집기: `http://localhost:5173/editor/`. `.env.local` 의 `VITE_API_BASE` 가 가리키는 Worker 의 서버 저장소에 저장합니다 (로컬 Worker 는 로컬 KV).
 - 카메라·위치·나침반은 **HTTPS 또는 localhost** 에서만 동작하므로 실제 폰 테스트는 GitHub Pages 배포본으로 합니다.
 
 ```bash
@@ -797,7 +832,7 @@ MSYS_NO_PATHCONV=1 BASE_PATH=/arHeritage/ npm run build
 | `ANTHROPIC_API_KEY` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Secret | GitHub Actions 배포용 | — |
-| RAG 편집기 GitHub 토큰 | fine-grained PAT (Contents 쓰기, 이 저장소만) | 편집 담당자 브라우저 (세션 또는 「기억하기」) | 저장소에 포함되지 않음 |
+| 서버 저장소 업로드 키 | `UPLOAD_KEY` (Worker secret) | Worker 비밀값, 로컬 사본 `worker/.dev.vars` · 편집 담당자 브라우저 · 폰 관리자 모드 | 저장소에 포함되지 않음 |
 | `.env.local`, `worker/.dev.vars` | 로컬 파일 | `.gitignore` 로 제외 | — |
 
 Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고, 요청 형식·길이를 zod 로 검증합니다.
@@ -827,8 +862,9 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 - **알림**: 웹앱은 앱이 닫혀 있을 때 위치를 추적할 수 없어, 앱이 열려 있는 동안만 도착 알림이 됩니다.
 - **요청 제한**: Worker 에 요청 횟수 제한이 없으므로 공개 운영 전 추가를 권장합니다.
 - **RAG 검색**: BM25 키워드 검색이라 표현이 전혀 다른 질문(동의어·의역)은 관련 자료를 놓칠 수 있습니다. 외부 RAG 서버는 HTTPS·CORS 가 준비된 서버만 연결됩니다.
-- **RAG 편집 반영 시간**: 「GitHub 에 반영」 뒤 배포(2~3분) + Worker 버전 확인(최대 1분)이 지나야 대화에 쓰입니다. 편집 내용은 **RAG 서버 방식**에만 쓰이고, 「기본」 방식과 유적 카드 설명은 원문 그대로입니다.
-- **편집기 토큰**: 토큰은 편집 담당자의 브라우저에 저장됩니다. GitHub Pages 는 같은 계정의 페이지가 같은 출처(`samcho93.github.io`)를 쓰므로, 공용 PC 에서는 「기억하기」를 끄고 권한은 이 저장소 Contents 로만 좁힌 토큰을 쓰세요.
+- **RAG 편집 반영 시간**: 「서버에 저장」 뒤 Worker 가 1분마다 업로드 문서를 확인하므로 최대 1분 뒤 대화에 쓰입니다. 유적 카드 설명은 원문 그대로입니다.
+- **서버 저장소 한도**: Workers KV 무료 플랜은 하루 쓰기 1,000회, 값 하나 25MB 입니다. 3D 모델은 25MB 이하로 압축해서 올립니다.
+- **업로드 키**: 키는 편집 담당자의 브라우저에 저장됩니다. GitHub Pages 는 같은 계정의 페이지가 같은 출처(`samcho93.github.io`)를 쓰므로, 공용 PC 에서는 「기억하기」를 끄세요.
 - **동시 편집**: 반영할 때 최신본 위에 내가 바꾼 항목만 덮어써 다른 사람의 변경은 유지되지만, **같은 자료**를 동시에 고치면 나중에 반영한 쪽이 남습니다.
 - **초상**: 효종·인조·세조·황희·장영실은 아직 초상이 없어 인장·실루엣으로 표시됩니다.
 

@@ -13,6 +13,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { bucketOf, queryTerms } from './ragText.ts';
+import { handleStore, loadOverlay, StoreError, type Overlay } from './store.ts';
 
 export interface Env {
   ANTHROPIC_API_KEY: string;
@@ -25,6 +26,10 @@ export interface Env {
   /** Azure Speech (선택) */
   AZURE_SPEECH_KEY?: string;
   AZURE_SPEECH_REGION?: string;
+  /** 서버 저장소 (3D 모델·RAG 자료·외부 RAG 인물 설정) — store.ts */
+  STORE: KVNamespace;
+  /** 업로드·삭제 키 (Worker secret) */
+  UPLOAD_KEY?: string;
 }
 
 const MODEL = 'claude-opus-5';
@@ -66,8 +71,9 @@ function cors(origin: string | null, env: Env): Record<string, string> {
   return origin && allowed.includes(origin)
     ? {
         'Access-Control-Allow-Origin': origin,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, X-Upload-Key, X-Content-SHA256, X-Height-M',
+        'Access-Control-Expose-Headers': 'ETag',
         'Access-Control-Max-Age': '86400',
         Vary: 'Origin',
       }
@@ -134,15 +140,18 @@ function speechStyle(f: Figure): string {
 }
 
 async function systemPrompt(f: Figure, env: Env, siteId?: string, boundary = true): Promise<string> {
-  const details = await Promise.all(
-    f.sites.map((s) => fetchJson<Detail>(`${env.SITE_BASE}data/detail/${s.id}.json`).catch(() => undefined)),
-  );
+  const [details, overlay] = await Promise.all([
+    Promise.all(f.sites.map((s) => fetchJson<Detail>(`${env.SITE_BASE}data/detail/${s.id}.json`).catch(() => undefined))),
+    loadOverlay(env),
+  ]);
   const here = details.find((d) => d?.id === siteId);
+  // 서버에 올린 RAG 자료(대상: …)로 고친 글·뺀 유적을 기본 대화에도 반영한다
   const sources = f.sites
     .map((s, i) => {
       const d = details[i];
-      if (!d) return '';
-      return `## ${d.name} (${d.designation}${d.era ? `, ${d.era}` : ''}) — ${s.note}\n${d.description.slice(0, 1800)}`;
+      if (!d || (overlay.excluded.has(d.id) && !overlay.replaced.has(d.id))) return '';
+      const text = overlay.replaced.get(d.id) ?? d.description;
+      return `## ${d.name} (${d.designation}${d.era ? `, ${d.era}` : ''}) — ${s.note}\n${text.slice(0, 1800)}`;
     })
     .filter(Boolean)
     .join('\n\n');
@@ -150,7 +159,7 @@ async function systemPrompt(f: Figure, env: Env, siteId?: string, boundary = tru
   return `너는 역사 인물 ${f.name}(${f.hanja}, ${f.title}, ${f.years})이다. 유적지를 찾은 방문객과 얼굴을 마주 보고 이야기하는 AR 앱 '역사담'에서, ${f.name} 본인으로서 1인칭으로 대화한다.
 
 [인물 소개]
-${f.bio}
+${overlay.replaced.get(`fig:${f.id}`) ?? f.bio}
 
 [사료 — 국가유산청 설명문]
 ${sources || '(없음)'}
@@ -276,15 +285,19 @@ interface Boundary {
 }
 type Era = 'late' | 'mixed';
 
+/**
+ * 색인(정적 파일)과 서버에 올린 RAG 자료(store.ts 겹쳐 쓰기)를 함께 검색한다.
+ * 조각 열쇠: 색인은 「b<번호>」, 업로드 자료는 「o<번호>」. 대상으로 고치거나 뺀 출처의 색인 조각은 쓰지 않는다.
+ */
 async function retrieve(
   env: Env,
   query: string,
   boost: Map<string, number>,
   must: string[],
   limit?: Boundary,
-): Promise<{ i: number; c: RagChunk; era?: Era }[]> {
+): Promise<{ c: RagChunk; era?: Era }[]> {
   const base = `${env.SITE_BASE}data/rag/`;
-  const meta = await ragMeta(base);
+  const [meta, overlay] = await Promise.all([ragMeta(base), loadOverlay(env)]);
   const ver = meta.v ? `?v=${meta.v}` : '';
   const qt = queryTerms(query);
   const bucketIds = [...new Set(qt.map(bucketOf))];
@@ -293,39 +306,72 @@ async function retrieve(
       bucketIds.map(async (b) => [b, await fetchJson<Record<string, number[]>>(`${base}b/${b}.json${ver}`).catch(() => ({}) as Record<string, number[]>)] as const),
     ),
   );
-  // BM25 (k1 = 1.2, b = 0.75)
-  const scores = new Map<number, number>();
+  const ov: Overlay = overlay;
+  const n = meta.n + ov.chunks.length;
+  const avgdl = ov.chunks.length ? (meta.avgdl * meta.n + ov.chunks.reduce((a, c) => a + c.len, 0)) / n : meta.avgdl;
+  const bm25 = (idf: number, tf: number, dl: number) => (idf * tf * 2.2) / (tf + 1.2 * (0.25 + (0.75 * dl) / avgdl));
+  const srcOf = (k: string) => (k[0] === 'b' ? meta.docs[Number(k.slice(1))][0] : ov.chunks[Number(k.slice(1))].s);
+  const yearsOf = (k: string): [number, number] => {
+    if (k[0] === 'o') return ov.chunks[Number(k.slice(1))].years;
+    const [, , yMin = 0, yMax = 0] = meta.docs[Number(k.slice(1))];
+    return [yMin, yMax];
+  };
+
+  // BM25 (k1 = 1.2, b = 0.75) — 문서 빈도는 색인 + 업로드 자료
+  const scores = new Map<string, number>();
   for (const t of qt) {
     const e = buckets.get(bucketOf(t))?.[t];
-    if (!e) continue;
-    const df = e[0];
-    const idf = Math.log(1 + (meta.n - df + 0.5) / (df + 0.5));
-    for (let k = 1; k < e.length; k += 2) {
-      const i = e[k];
-      const tf = e[k + 1];
-      const dl = meta.docs[i][1];
-      scores.set(i, (scores.get(i) ?? 0) + (idf * tf * 2.2) / (tf + 1.2 * (0.25 + (0.75 * dl) / meta.avgdl)));
+    const odf = ov.df.get(t) ?? 0;
+    const df = (e?.[0] ?? 0) + odf;
+    if (!df) continue;
+    const idf = Math.log(1 + (n - df + 0.5) / (df + 0.5));
+    if (e) {
+      for (let k = 1; k < e.length; k += 2) {
+        const i = e[k];
+        if (ov.excluded.has(meta.docs[i][0])) continue;
+        const key = `b${i}`;
+        scores.set(key, (scores.get(key) ?? 0) + bm25(idf, e[k + 1], meta.docs[i][1]));
+      }
+    }
+    if (odf) {
+      ov.chunks.forEach((c, j) => {
+        const tf = c.tf.get(t);
+        if (tf) scores.set(`o${j}`, (scores.get(`o${j}`) ?? 0) + bm25(idf, tf, c.len));
+      });
     }
   }
   // 대화 상대와 연결된 유적·인물 조각에 가중치
-  for (const [i, s] of scores) scores.set(i, s * (boost.get(meta.docs[i][0]) ?? 1));
+  for (const [k, s] of scores) scores.set(k, s * (boost.get(srcOf(k)) ?? 1));
   // 지식 경계 필터: 인물이 세상을 떠난 뒤의 일만 적힌 조각은 검색에서 뺀다 (이 인물의 유적 조각은 「후세 기록」으로 남김)
-  const eraOf = (i: number): Era | undefined => {
+  const eraOf = (k: string): Era | undefined => {
     if (!limit) return undefined;
-    const [, , yMin = 0, yMax = 0] = meta.docs[i];
+    const [yMin, yMax] = yearsOf(k);
     return yMin > limit.died ? 'late' : yMax > limit.died ? 'mixed' : undefined;
   };
-  if (limit) for (const i of [...scores.keys()]) if (eraOf(i) === 'late' && !limit.own.has(meta.docs[i][0])) scores.delete(i);
-  // 꼭 넣을 조각 (인물 소개 / 해설사가 안내하는 유적의 첫 조각)
-  const mustIdx = must.map((src) => meta.docs.findIndex(([s]) => s === src)).filter((i) => i >= 0);
-  const top = [...new Set([...mustIdx, ...[...scores].sort((a, b) => b[1] - a[1]).map(([i]) => i)])].slice(0, TOP_K);
+  if (limit) for (const k of [...scores.keys()]) if (eraOf(k) === 'late' && !limit.own.has(srcOf(k))) scores.delete(k);
+  // 꼭 넣을 조각 (인물 소개 / 해설사가 안내하는 유적의 첫 조각) — 업로드 자료로 고친 글이 먼저
+  const mustKeys = must
+    .map((src) => {
+      const j = ov.chunks.findIndex((c) => c.s === src);
+      if (j >= 0) return `o${j}`;
+      if (ov.excluded.has(src)) return undefined;
+      const i = meta.docs.findIndex(([s]) => s === src);
+      return i >= 0 ? `b${i}` : undefined;
+    })
+    .filter((k): k is string => !!k);
+  const top = [...new Set([...mustKeys, ...[...scores].sort((a, b) => b[1] - a[1]).map(([k]) => k)])].slice(0, TOP_K);
 
+  const baseIdx = top.filter((k) => k[0] === 'b').map((k) => Number(k.slice(1)));
   const groups = new Map(
     await Promise.all(
-      [...new Set(top.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json${ver}`)] as const),
+      [...new Set(baseIdx.map((i) => Math.floor(i / meta.group)))].map(async (g) => [g, await fetchJson<RagChunk[]>(`${base}c/${g}.json${ver}`)] as const),
     ),
   );
-  return top.map((i) => ({ i, c: groups.get(Math.floor(i / meta.group))![i % meta.group], era: eraOf(i) }));
+  return top.map((k) => {
+    const i = Number(k.slice(1));
+    const c: RagChunk = k[0] === 'b' ? groups.get(Math.floor(i / meta.group))![i % meta.group] : { s: ov.chunks[i].s, t: ov.chunks[i].t, x: ov.chunks[i].x };
+    return { c, era: eraOf(k) };
+  });
 }
 
 async function rag(req: Request, env: Env, client: Anthropic) {
@@ -521,10 +567,26 @@ export default {
     const appKey = req.headers.get('X-App-Key');
     const fromApp = !!appKey && (env.APP_KEYS ?? '').split(',').map((k) => k.trim()).includes(appKey);
     if (!headers['Access-Control-Allow-Origin'] && !fromApp) return json({ error: '허용되지 않은 출처입니다.' }, 403, headers);
+
+    const path = new URL(req.url).pathname;
+    // 서버 저장소 (3D 모델 · RAG 자료 · 외부 RAG 인물 설정) — GET·PUT·DELETE
+    try {
+      const r = await handleStore(req, env, path);
+      if (r instanceof Response) {
+        Object.entries(headers).forEach(([k, v]) => r.headers.set(k, v));
+        return r;
+      }
+      if (r) return json(r.body, r.status ?? 200, headers);
+    } catch (e) {
+      if (e instanceof StoreError) return json({ error: e.message }, e.status, headers);
+      if (e instanceof z.ZodError) return json({ error: '요청 형식이 올바르지 않습니다.' }, 400, headers);
+      if (e instanceof SyntaxError) return json({ error: 'JSON 형식이 올바르지 않습니다.' }, 400, headers);
+      console.error(e);
+      return json({ error: '저장소 오류가 발생했습니다.' }, 500, headers);
+    }
     if (req.method !== 'POST') return json({ error: 'POST 만 지원합니다.' }, 405, headers);
 
     const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-    const path = new URL(req.url).pathname;
     try {
       if (path === '/chat') return json(await chat(req, env, client), 200, headers);
       if (path === '/rag') return json(await rag(req, env, client), 200, headers);

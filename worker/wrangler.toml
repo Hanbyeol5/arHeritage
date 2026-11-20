@@ -11,6 +11,12 @@ ALLOWED_ORIGINS = "https://samcho93.github.io,http://localhost:5173,https://hanb
 # Android 앱(samcho93/historydam)이 X-App-Key 헤더로 보내는 값
 APP_KEYS = "historydam-android-v1"
 
+# 서버 저장소: 3D 인물 모델 · RAG 자료 · 외부 RAG 인물 설정 (src/store.ts, docs/SERVER-STORAGE.md)
+# 업로드 키는 `npx wrangler secret put UPLOAD_KEY` (로컬은 .dev.vars)
+[[kv_namespaces]]
+binding = "STORE"
+id = "abfeb79376d0489380ec478cd27ab3ee"
+
 # ANTHROPIC_API_KEY 는 `npx wrangler secret put ANTHROPIC_API_KEY` 로 등록 (로컬은 .dev.vars)
 
 # 사용자 근처 데이터센터(예: 홍콩)에서 실행되면 Claude API 가 지역 제한으로 403 을 돌려주므로,

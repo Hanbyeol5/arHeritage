@@ -1,22 +1,24 @@
 /**
  * RAG 자료 편집기 (/editor/) — 웹앱과 분리된 관리 도구. 웹앱 메뉴에는 링크가 없다.
  *
- * 원본 데이터는 그대로 두고 public/data/rag-edits.json 하나에 수정 사항을 모은다.
- *   · 유적·인물 글 바꾸기(overrides) · RAG 에서 빼기(hidden) · 새 자료 추가(extra)
- * 작업 내용은 이 브라우저에 초안으로 자동 저장되고, 「GitHub 에 반영」을 누르면
- * GitHub API 로 rag-edits.json 을 커밋한다 → 배포 워크플로가 RAG 색인을 다시 만들어 게시 →
- * Worker(/rag)는 1분 안에 새 색인 버전을 읽는다.
+ * 자료는 서버 저장소(Worker /doc, Cloudflare KV)에 Markdown 문서로 저장한다 (docs/SERVER-STORAGE.md).
+ *   · 유적·인물 글 바꾸기 → 「대상: <id>」 문서 (원문 대체)
+ *   · RAG 에서 빼기      → 「대상: <id> / 제외: 예」 문서
+ *   · 새 자료 추가       → 제목 이름의 문서 (「연결: <id>」 가 있으면 그 유적·인물의 자료)
+ * 폰 앱(관리자 모드)에서 올린 .md 와 같은 저장소·형식이다. 저장하면 1분 안에 RAG 서버 대화에 쓰인다.
+ *
+ * 「외부 RAG 인물 설정」 탭은 Android 앱 백엔드 RAG(historydam backend 방식)의 인물 설정
+ * (말투·사망 연도·검색어)을 편집해 /store/personas.json 에 저장한다.
  */
 import './editor.css';
-import { emptyEdits, splitChunks, type RagEdits } from '../../worker/src/ragText.ts';
+import { splitChunks } from '../../worker/src/ragText.ts';
 import type { Figure, HeritageDetail, HeritageIndex } from '../types.ts';
+import { josa } from '../ui/josa.ts';
 
 const BASE = import.meta.env.BASE_URL;
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '');
-const FILE = 'public/data/rag-edits.json';
-const DRAFT_KEY = 'yeoksadam-editor:draft';
-const CONF_KEY = 'yeoksadam-editor:conf';
-const TOKEN_KEY = 'yeoksadam-editor:token';
+const DRAFT_KEY = 'yeoksadam-editor:draft2';
+const UPLOAD_KEY = 'yeoksadam-editor:upload-key';
 
 type Kind = 'heritage' | 'local' | 'tour' | 'figure';
 interface Source {
@@ -25,7 +27,41 @@ interface Source {
   sub: string;
   kind: Kind;
 }
-type Extra = RagEdits['extra'][number];
+interface Extra {
+  /** 서버 문서 열쇠 (새로 만든 자료는 「new-…」) */
+  id: string;
+  title: string;
+  link?: string;
+  text: string;
+  source?: string;
+  years?: string;
+}
+interface Edits {
+  overrides: Record<string, string>;
+  hidden: string[];
+  extra: Extra[];
+}
+const emptyEdits = (): Edits => ({ overrides: {}, hidden: [], extra: [] });
+
+/** 서버 문서 목록 항목 (worker/src/store.ts DocEntry) */
+interface DocEntry {
+  name: string;
+  key: string;
+  source: string;
+  years?: [number, number];
+  target?: { id: string; name: string };
+  hidden?: boolean;
+  link?: { id: string; name: string };
+  uploadedAt: string;
+}
+/** 외부 RAG(백엔드) 인물 설정 — Android core:backend BackendRagChat.Persona 와 같은 모양 */
+interface Persona {
+  name: string;
+  era: string;
+  maxYear: number;
+  keyword: string;
+  persona: string;
+}
 
 const KIND_LABEL: Record<Kind, string> = { heritage: '국가유산', local: '향토유산', tour: '역사관광지', figure: '인물' };
 const FILTERS: [string, string][] = [
@@ -41,7 +77,12 @@ const LIST_MAX = 300;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const normEdits = (e: Partial<RagEdits> | undefined): RagEdits => ({ ...emptyEdits(), ...(e ?? {}) });
+/** 서버와 같은 이름 열쇠 (worker/src/store.ts nameKey) */
+const nameKey = (name: string) =>
+  name
+    .normalize('NFC')
+    .replace(/\.(glb|md)$/i, '')
+    .replace(/\s+/g, '');
 
 function safeGet(store: Storage, key: string): string | null {
   try {
@@ -63,31 +104,29 @@ function safeSet(store: Storage, key: string, value: string | null) {
 let sources: Source[] = [];
 const byId = new Map<string, Source>();
 const figures = new Map<string, Figure>();
-/** 초안의 기준(마지막으로 받은 게시본)과 현재 작업본 */
-let base: RagEdits = emptyEdits();
-let edits: RagEdits = emptyEdits();
-let selected: string | null = null; // 출처 id 또는 "x:<추가 자료 id>"
+/** 초안의 기준(서버에 저장된 상태)과 현재 작업본 */
+let base: Edits = emptyEdits();
+let edits: Edits = emptyEdits();
+/** 대상 출처 id → 서버 문서 이름 (폰에서 올린 문서는 이름이 제각각이라 기억해 둔다) */
+let targetDoc = new Map<string, string>();
+/** 외부 RAG 인물 설정: 서버 값과 작업본 (없는 인물은 기본값) */
+let personaBase: Record<string, Persona> = {};
+let personas: Record<string, Persona> = {};
+let mode: 'rag' | 'persona' = 'rag';
+let selected: string | null = null; // 출처 id, "x:<추가 자료 id>", 인물 설정은 "p:<인물 id>"
 let query = '';
 let filter = 'all';
+const uploadKey = () => safeGet(sessionStorage, UPLOAD_KEY) ?? safeGet(localStorage, UPLOAD_KEY) ?? '';
 
-const conf = (() => {
-  const saved = JSON.parse(safeGet(localStorage, CONF_KEY) ?? '{}') as { repo?: string };
-  // https://<owner>.github.io/<repo>/editor/ → owner/repo
-  const owner = location.hostname.endsWith('.github.io') ? location.hostname.split('.')[0] : 'samcho93';
-  const repo = location.pathname.split('/').filter(Boolean)[0];
-  return { repo: saved.repo || `${owner}/${repo && repo !== 'editor' ? repo : 'arHeritage'}` };
-})();
-const token = () => safeGet(sessionStorage, TOKEN_KEY) ?? safeGet(localStorage, TOKEN_KEY) ?? '';
-
-// ---------- 차이 계산 (o: 글 바꾸기, h: 제외, x: 추가 자료) ----------
-function keyValue(e: RagEdits, key: string): string | undefined {
+// ---------- 차이 계산 (o: 글 바꾸기, h: 제외, x: 추가 자료, p: 인물 설정) ----------
+function keyValue(e: Edits, key: string): string | undefined {
   const id = key.slice(2);
   if (key.startsWith('o:')) return e.overrides[id];
   if (key.startsWith('h:')) return e.hidden.includes(id) ? '1' : undefined;
   const x = e.extra.find((v) => v.id === id);
   return x && JSON.stringify(x);
 }
-function allKeys(...list: RagEdits[]): Set<string> {
+function allKeys(...list: Edits[]): Set<string> {
   const keys = new Set<string>();
   for (const e of list) {
     Object.keys(e.overrides).forEach((id) => keys.add(`o:${id}`));
@@ -96,10 +135,13 @@ function allKeys(...list: RagEdits[]): Set<string> {
   }
   return keys;
 }
-const changedKeys = () => [...allKeys(base, edits)].filter((k) => keyValue(base, k) !== keyValue(edits, k));
+const ragChanged = () => [...allKeys(base, edits)].filter((k) => keyValue(base, k) !== keyValue(edits, k));
+const personaChanged = () =>
+  [...new Set([...Object.keys(personaBase), ...Object.keys(personas)])].filter((id) => JSON.stringify(personaBase[id]) !== JSON.stringify(personas[id]));
+const changedCount = () => ragChanged().length + personaChanged().length;
 
 /** from 의 key 값을 to 에 옮긴다 (없으면 to 에서도 지운다) */
-function applyKey(to: RagEdits, from: RagEdits, key: string) {
+function applyKey(to: Edits, from: Edits, key: string) {
   const id = key.slice(2);
   if (key.startsWith('o:')) {
     if (id in from.overrides) to.overrides[id] = from.overrides[id];
@@ -117,7 +159,8 @@ function applyKey(to: RagEdits, from: RagEdits, key: string) {
 }
 
 function saveDraft() {
-  safeSet(localStorage, DRAFT_KEY, changedKeys().length ? JSON.stringify({ base, edits }) : null);
+  const dirty = changedCount() > 0;
+  safeSet(localStorage, DRAFT_KEY, dirty ? JSON.stringify({ base, edits, personaBase, personas }) : null);
   renderHeader();
 }
 
@@ -134,6 +177,18 @@ const detail = (id: string) => {
   return p;
 };
 
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
+  if (!API_BASE) throw new Error('API 주소(VITE_API_BASE)가 설정되지 않은 빌드입니다.');
+  return fetch(`${API_BASE}${path}`, { cache: 'no-store', ...init });
+}
+async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const r = await api(path, init);
+  const d = (await r.json().catch(() => ({}))) as T & { error?: string };
+  if (!r.ok) throw new Error(d.error ?? `서버 오류 ${r.status}`);
+  return d;
+}
+const docPath = (name: string) => `/doc/${encodeURIComponent(name)}.md`;
+
 /** 원문: 유적은 상세 설명, 인물은 소개 글 */
 async function originalText(id: string): Promise<string> {
   if (id.startsWith('fig:')) return figures.get(id.slice(4))?.bio ?? '';
@@ -149,16 +204,106 @@ async function chunkHead(id: string): Promise<string> {
   return `${d.name} (${[d.designation, d.era, d.city].filter(Boolean).join(', ')})`;
 }
 
+/** 머리말 + 본문 (worker/src/store.ts parseDoc) */
+function parseDoc(text: string): { meta: Record<string, string>; body: string } {
+  const t = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const m = t.match(/^((?:[^\n]*\n)*?)-{3,}\s*\n([\s\S]*)$/);
+  if (!m) return { meta: {}, body: t.trim() };
+  const meta: Record<string, string> = {};
+  for (const line of m[1].split('\n')) {
+    const kv = line.match(/^\s*([^:：]+?)\s*[:：]\s*(.*?)\s*$/);
+    if (kv) meta[kv[1]] = kv[2];
+  }
+  return { meta, body: m[2].trim() };
+}
+const docText = (meta: [string, string | undefined][], body: string) =>
+  `${meta
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n')}\n---\n${body.trim()}\n`;
+
+/** 같은 이름의 유적이 여럿이면 id 를 붙여 문서 이름이 겹치지 않게 한다 */
+function targetDocName(id: string): string {
+  const known = targetDoc.get(id);
+  if (known) return known;
+  const s = byId.get(id)!;
+  const dup = sources.some((o) => o.id !== id && nameKey(o.name) === nameKey(s.name));
+  return `${s.name}${dup ? ` ${id}` : ''} 고침`;
+}
+
+/** 서버 문서 → 편집 상태 */
+async function loadServer(): Promise<Edits> {
+  const { docs } = await apiJson<{ docs: DocEntry[] }>('/store/docs.json');
+  const texts = await Promise.all(docs.map((d) => api(docPath(d.name)).then((r) => (r.ok ? r.text() : ''))));
+  const e = emptyEdits();
+  targetDoc = new Map();
+  docs.forEach((d, i) => {
+    const { meta, body } = parseDoc(texts[i]);
+    if (d.target) {
+      targetDoc.set(d.target.id, d.name);
+      if (d.hidden) e.hidden.push(d.target.id);
+      else e.overrides[d.target.id] = body;
+      return;
+    }
+    e.extra.push({
+      id: d.key,
+      title: d.name,
+      text: body,
+      ...(d.link ? { link: d.link.id } : {}),
+      ...(meta['출처'] ? { source: meta['출처'] } : {}),
+      ...(meta['연도'] ? { years: meta['연도'] } : {}),
+    });
+  });
+  return e;
+}
+
+// ---------- 외부 RAG 기본 인물 설정 (Android BackendRagChat 과 같은 규칙) ----------
+const BACKEND_FIGURES: Record<string, Persona> = {
+  sejong: { name: '세종대왕', era: '조선', maxYear: 1450, keyword: '세종', persona: '조선의 제4대 왕이다. 백성을 아끼는 자애롭고 위엄 있는 어조(~하노라, ~이니라)를 쓴다.' },
+  'jang-yeongsil': {
+    name: '장영실',
+    era: '조선',
+    maxYear: 1450,
+    keyword: '장영실',
+    persona: '조선의 천민 출신 과학자이다. 신분은 낮았으나 기술에 대한 열정이 넘치며, 겸손하고 공손한 어조(~하옵니다, ~였습니다)를 쓴다.',
+  },
+};
+function defaultPersona(f: Figure): Persona {
+  if (BACKEND_FIGURES[f.id]) return BACKEND_FIGURES[f.id];
+  const died = f.died ?? 2026;
+  const tone =
+    f.style === 'king'
+      ? '임금으로서 백성을 아끼는 위엄 있고 자애로운 어조(~하노라, ~이니라)를 쓴다.'
+      : f.style === 'general'
+        ? '장수로서 결연하고 강직한 어조(~하였소, ~하겠네)를 쓴다.'
+        : f.style === 'lady'
+          ? '단아하고 온화하며 기품 있는 어조(~하옵니다, ~이지요)를 쓴다.'
+          : '선비로서 차분하고 품위 있는 어조(~하오, ~이외다)를 쓴다.';
+  const years = /\d/.test(f.years) ? `(${f.years})` : '';
+  const title = f.title ? `${f.title}.` : '';
+  return {
+    name: f.name,
+    era: died <= 1392 ? '고려' : '조선',
+    maxYear: died,
+    keyword: f.name.split(' ').pop()!.replace(/대왕$/, ''),
+    persona: `${f.name}${years} 이다. ${title} ${f.bio.trim()} ${tone}`.replace(/\s+/g, ' ').replace(' 이다.', '이다.').trim(),
+  };
+}
+
 // ---------- 화면 ----------
 const root = document.getElementById('app')!;
 root.innerHTML = `
   <header class="ed-top">
-    <div class="ed-brand"><span class="seal">談</span><div><b>RAG 자료 편집기</b><small>역사담 인물 대화(RAG 서버)가 참고하는 자료</small></div></div>
+    <div class="ed-brand"><span class="seal">談</span><div><b>RAG 자료 편집기</b><small>인물 대화(RAG 서버·외부 RAG)가 참고하는 자료 — 서버 저장</small></div></div>
+    <nav class="ed-tabs">
+      <button class="on" data-mode="rag">RAG 자료</button>
+      <button data-mode="persona">외부 RAG 인물 설정</button>
+    </nav>
     <div class="ed-status"></div>
     <div class="ed-actions">
-      <button class="btn ghost" data-act="io" title="초안 내려받기·불러오기">파일</button>
-      <button class="btn ghost" data-act="conf">GitHub 설정</button>
-      <button class="btn solid" data-act="publish">GitHub 에 반영</button>
+      <button class="btn ghost" data-act="io" title="작업본 내려받기·불러오기">파일</button>
+      <button class="btn ghost" data-act="conf">업로드 키</button>
+      <button class="btn solid" data-act="publish">서버에 저장</button>
     </div>
   </header>
   <div class="ed-notice" hidden></div>
@@ -171,13 +316,19 @@ root.innerHTML = `
       <button class="btn outline add" data-act="add">+ 새 자료 추가</button>
       <div class="ed-list" role="list"></div>
     </aside>
-    <section class="ed-pane"><div class="ed-empty">왼쪽에서 유적·인물을 고르거나 <b>새 자료</b>를 추가하세요.<br/><br/>
-      <small>여기서 고친 내용은 <b>RAG 서버</b> 대화 방식에만 쓰입니다. 원본 데이터는 바뀌지 않으며, 언제든 원문으로 되돌릴 수 있습니다.</small></div></section>
+    <section class="ed-pane"></section>
   </main>`;
 
 const $ = <T extends HTMLElement>(sel: string, el: ParentNode = root) => el.querySelector<T>(sel)!;
 const listEl = $('.ed-list');
 const pane = $('.ed-pane');
+
+const EMPTY_RAG = `<div class="ed-empty">왼쪽에서 유적·인물을 고르거나 <b>새 자료</b>를 추가하세요.<br/><br/>
+  <small>고친 내용은 <b>서버에 저장</b>을 누르면 서버 저장소에 Markdown 문서로 올라가고, 1분 안에 <b>RAG 서버</b> 대화와 Android 앱 <b>백엔드 RAG</b>(인물에 연결된 자료)에 쓰입니다. 원본 데이터는 바뀌지 않으며, 언제든 원문으로 되돌릴 수 있습니다.</small></div>`;
+const EMPTY_PERSONA = `<div class="ed-empty">왼쪽에서 인물을 고르세요.<br/><br/>
+  <small><b>외부 RAG 인물 설정</b>은 Android 앱의 기본 대화 방식인 <b>백엔드 RAG</b>(의도 분류 → 공공기관 자료 7곳 검색 → Gemini)가 인물을 연기할 때 쓰는 설정입니다. 고치지 않은 인물은 앱에 들어 있는 기본값을 씁니다.<br/>
+  인물에 연결된 보충 자료는 <b>RAG 자료</b> 탭에서 추가하면 백엔드 RAG 의 참고 자료에도 함께 들어갑니다.</small></div>`;
+pane.innerHTML = EMPTY_RAG;
 
 function notice(html: string, kind: 'info' | 'ok' | 'err' = 'info') {
   const n = $('.ed-notice');
@@ -188,13 +339,14 @@ function notice(html: string, kind: 'info' | 'ok' | 'err' = 'info') {
 }
 
 function renderHeader() {
-  const n = changedKeys().length;
+  const n = changedCount();
   const e = edits;
   $('.ed-status').innerHTML = `
     <span>글 바꿈 <b>${Object.keys(e.overrides).length}</b></span>
     <span>제외 <b>${e.hidden.length}</b></span>
     <span>추가 <b>${e.extra.length}</b></span>
-    <span class="${n ? 'dirty' : ''}">${n ? `반영 안 한 변경 <b>${n}</b>건` : '모두 반영됨'}</span>`;
+    <span>인물 설정 <b>${Object.keys(personas).length}</b></span>
+    <span class="${n ? 'dirty' : ''}">${n ? `저장 안 한 변경 <b>${n}</b>건` : '모두 저장됨'}</span>`;
   $<HTMLButtonElement>('[data-act=publish]').disabled = !n;
 }
 
@@ -211,6 +363,17 @@ function renderList() {
   const q = query.trim().toLowerCase();
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const rows: string[] = [];
+
+  if (mode === 'persona') {
+    for (const f of figures.values()) {
+      if (!match(`${f.name} ${f.title} ${f.id}`)) continue;
+      const edited = !!personas[f.id];
+      rows.push(`<button class="it ${selected === `p:${f.id}` ? 'on' : ''}" data-id="p:${esc(f.id)}">
+        <b>${esc(f.name)}</b><small>${esc(f.title)}, ${esc(f.years)}</small>${edited ? '<i class="bd edit">수정</i>' : ''}</button>`);
+    }
+    listEl.innerHTML = rows.join('') || '<p class="more">찾는 인물이 없습니다.</p>';
+    return;
+  }
 
   if (filter === 'all' || filter === 'extra' || filter === 'changed') {
     for (const x of edits.extra) {
@@ -250,13 +413,25 @@ $<HTMLSelectElement>('.ed-search select').addEventListener('change', (e) => {
   filter = (e.target as HTMLSelectElement).value;
   renderList();
 });
+root.querySelectorAll<HTMLButtonElement>('.ed-tabs button').forEach((b) =>
+  b.addEventListener('click', () => {
+    mode = b.dataset.mode as typeof mode;
+    root.querySelectorAll('.ed-tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    $<HTMLSelectElement>('.ed-search select').hidden = mode === 'persona';
+    $('[data-act=add]').hidden = mode === 'persona';
+    $<HTMLInputElement>('.ed-search input').placeholder = mode === 'persona' ? '인물 이름 검색' : '유적·인물 이름, 시군, id 검색';
+    select(null);
+    pane.innerHTML = mode === 'persona' ? EMPTY_PERSONA : EMPTY_RAG;
+  }),
+);
 
 function select(id: string | null) {
   selected = id;
   root.classList.toggle('picked', !!id);
   renderList();
   if (!id) return;
-  if (id.startsWith('x:')) renderExtra(id.slice(2));
+  if (id.startsWith('p:')) renderPersona(id.slice(2));
+  else if (id.startsWith('x:')) renderExtra(id.slice(2));
   else void renderSource(id);
 }
 
@@ -275,7 +450,7 @@ function testBox(defaultPersona: string): string {
     opts.unshift(`<option value="guide:${esc(selected)}" ${defaultPersona.startsWith('guide:') ? 'selected' : ''}>이 유적 해설사</option>`);
   }
   return `<details class="ed-test">
-    <summary>🗨 대화로 확인 <small>배포된(반영 완료) 자료 기준</small></summary>
+    <summary>🗨 대화로 확인 <small>서버에 저장된 자료 기준 (저장 후 1분 안에 반영)</small></summary>
     <div class="tb">
       <select>${opts.join('')}</select>
       <input type="text" placeholder="질문 (예: 이곳은 언제 지어졌나요?)" />
@@ -290,16 +465,13 @@ function bindTest() {
     const q = $<HTMLInputElement>('input', box).value.trim();
     const out = $('.tr', box);
     if (!q) return;
-    if (!API_BASE) return void (out.textContent = 'API 주소(VITE_API_BASE)가 설정되지 않은 빌드입니다.');
     out.innerHTML = '<p class="muted">검색하고 답을 만드는 중…</p>';
     try {
-      const res = await fetch(`${API_BASE}/rag`, {
+      const d = await apiJson<{ text?: string; sources?: { name: string; quote: string }[]; retrieved?: string[] }>('/rag', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ figureId: $<HTMLSelectElement>('select', box).value, lines: [{ mine: true, text: q }] }),
       });
-      const d = (await res.json()) as { text?: string; error?: string; sources?: { name: string; quote: string }[]; retrieved?: string[] };
-      if (!res.ok) throw new Error(d.error ?? String(res.status));
       out.innerHTML = `<p class="ans">${esc(d.text ?? '')}</p>
         <p class="muted">📚 인용된 근거: ${d.sources?.length ? d.sources.map((s) => `<b title="${esc(s.quote)}">${esc(s.name)}</b>`).join(', ') : '없음'}</p>
         <p class="muted">🔎 검색된 조각: ${esc((d.retrieved ?? []).join(' · '))}</p>`;
@@ -332,7 +504,7 @@ async function renderSource(id: string) {
     <div class="fld">
       <div class="fl"><b>RAG 에 들어갈 글</b><span class="state"></span><button class="btn ghost sm reset">원문으로 되돌리기</button></div>
       <textarea class="txt" rows="14" spellcheck="false"></textarea>
-      <small class="hint">빈 줄로 문단을 나누면 조각도 나뉩니다. 틀린 내용을 고치거나, 대화에 쓰일 사실·일화를 덧붙이세요.</small>
+      <small class="hint">빈 줄로 문단을 나누면 조각도 나뉩니다. 고치면 서버에 「${esc(targetDocName(id))}.md」 문서(대상: ${esc(id)})로 저장됩니다.</small>
     </div>
     <div class="chunks"></div>
     <details class="orig"><summary>원문 보기 (${esc(id.startsWith('fig:') ? '인물 소개' : '국가유산청·향토유산·관광지 데이터')})</summary><pre>${esc(cleanOrig || '(원문 없음)')}</pre></details>
@@ -381,7 +553,7 @@ async function renderSource(id: string) {
 }
 
 function addExtra(link?: string) {
-  const x: Extra = { id: Date.now().toString(36), title: '', text: '', ...(link ? { link } : {}) };
+  const x: Extra = { id: `new-${Date.now().toString(36)}`, title: '', text: '', ...(link ? { link } : {}) };
   edits.extra.push(x);
   saveDraft();
   select(`x:${x.id}`);
@@ -395,13 +567,17 @@ function renderExtra(xid: string) {
   const linkLabel = (id?: string) => (id && byId.get(id) ? `${byId.get(id)!.name} · ${id}` : '');
   pane.innerHTML = `
     <button class="back btn ghost sm">← 목록</button>
-    <div class="ph"><h2>추가 자료</h2><div class="meta"><code>u:${esc(x.id)}</code></div></div>
-    <div class="fld"><div class="fl"><b>제목</b></div>
+    <div class="ph"><h2>추가 자료</h2><div class="meta">서버 문서 <code>${esc(x.title || '(제목)')}.md</code></div></div>
+    <div class="fld"><div class="fl"><b>제목</b><small>서버 문서 이름이 됩니다</small></div>
       <input class="title" type="text" maxlength="60" placeholder="예: 수원 화성 축성 일화" value="${esc(x.title)}" /></div>
     <div class="fld"><div class="fl"><b>연결할 유적·인물</b><small>(선택)</small></div>
       <input class="link" list="ed-sources" placeholder="이름으로 검색해 고르기 — 비우면 독립 자료" value="${esc(linkLabel(x.link))}" />
       <datalist id="ed-sources">${sources.map((s) => `<option value="${esc(`${s.name} · ${s.id}`)}">${esc(KIND_LABEL[s.kind])} · ${esc(s.sub)}</option>`).join('')}</datalist>
-      <small class="hint">연결하면 그 인물·유적과 대화할 때 우선 검색되고, 답변의 📚 근거 버튼이 그 유적 카드로 이어집니다.</small></div>
+      <small class="hint">연결하면 그 인물·유적과 대화할 때 우선 검색되고, 답변의 📚 근거 버튼이 그 유적 카드로 이어집니다. 인물에 연결한 자료는 앱의 백엔드 RAG 참고 자료에도 들어갑니다.</small></div>
+    <div class="fld two">
+      <div><div class="fl"><b>출처</b><small>(선택)</small></div><input class="src" type="text" maxlength="60" placeholder="예: 난중일기" value="${esc(x.source ?? '')}" /></div>
+      <div><div class="fl"><b>연도</b><small>(선택, 지식 경계 필터)</small></div><input class="yrs" type="text" maxlength="20" placeholder="예: 1592 또는 1592-1598" value="${esc(x.years ?? '')}" /></div>
+    </div>
     <div class="fld"><div class="fl"><b>내용</b></div>
       <textarea class="txt" rows="14" placeholder="대화에 쓰일 사실·일화·설명을 적으세요. 빈 줄로 문단을 나눕니다."></textarea></div>
     <div class="chunks"></div>
@@ -419,10 +595,14 @@ function renderExtra(xid: string) {
     clearTimeout(t);
     t = window.setTimeout(() => (saveDraft(), renderList()), 300);
   };
-  $<HTMLInputElement>('.title', pane).addEventListener('input', (e) => {
-    x.title = (e.target as HTMLInputElement).value.trim();
-    changed();
-  });
+  const field = (sel: string, set: (v: string) => void) =>
+    $<HTMLInputElement>(sel, pane).addEventListener('input', (e) => {
+      set((e.target as HTMLInputElement).value.trim());
+      changed();
+    });
+  field('.title', (v) => (x.title = v));
+  field('.src', (v) => (v ? (x.source = v) : delete x.source));
+  field('.yrs', (v) => (v ? (x.years = v) : delete x.years));
   ta.addEventListener('input', () => {
     x.text = ta.value.trim();
     changed();
@@ -439,7 +619,7 @@ function renderExtra(xid: string) {
     changed();
   });
   $('.del', pane).addEventListener('click', () => {
-    if (!confirm(`'${x.title || '제목 없음'}' 자료를 삭제할까요?`)) return;
+    if (!confirm(`'${x.title || '제목 없음'}' 자료를 삭제할까요? 서버에 저장하면 서버에서도 지워집니다.`)) return;
     edits.extra = edits.extra.filter((v) => v.id !== xid);
     saveDraft();
     select(null);
@@ -449,66 +629,184 @@ function renderExtra(xid: string) {
   bindTest();
 }
 
-// ---------- GitHub 반영 ----------
-const b64encode = (s: string) => {
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  return btoa(bin);
-};
-const b64decode = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
+// ---------- 외부 RAG 인물 설정 ----------
+function renderPersona(fid: string) {
+  const f = figures.get(fid);
+  if (!f) return select(null);
+  const def = defaultPersona(f);
+  const cur = personas[fid] ?? def;
+  pane.innerHTML = `
+    <button class="back btn ghost sm">← 목록</button>
+    <div class="ph"><h2>${esc(f.name)} <small>외부 RAG 인물 설정</small></h2><div class="meta">${esc(f.title)}, ${esc(f.years)} · <code>${esc(fid)}</code> · <span class="state"></span></div></div>
+    <div class="fld two">
+      <div><div class="fl"><b>이름</b></div><input class="p-name" maxlength="40" /></div>
+      <div><div class="fl"><b>시대</b></div><input class="p-era" maxlength="20" placeholder="조선 / 고려" /></div>
+    </div>
+    <div class="fld two">
+      <div><div class="fl"><b>지식 경계 연도</b><small>세상을 떠난 해</small></div><input class="p-year" type="number" min="0" max="3000" /></div>
+      <div><div class="fl"><b>검색어</b><small>공공기관 자료 검색에 쓰임</small></div><input class="p-kw" maxlength="40" /></div>
+    </div>
+    <div class="fld"><div class="fl"><b>신분·말투 지침</b><button class="btn ghost sm reset">기본값으로 되돌리기</button></div>
+      <textarea class="txt p-text" rows="9"></textarea>
+      <small class="hint">Gemini 프롬프트의 [상세 신분 및 말투 지침]에 그대로 들어갑니다. 예: 「조선의 수군절도사이다. 결연하고 강직한 어조(~하였소)를 쓴다.」</small></div>
+    <details class="orig"><summary>앱 기본값 보기</summary><pre>${esc(`이름: ${def.name}\n시대: ${def.era}\n지식 경계: ${def.maxYear}\n검색어: ${def.keyword}\n\n${def.persona}`)}</pre></details>
+    <p class="muted">저장하면 Android 앱이 다음 대화부터 이 설정을 씁니다(백엔드 RAG 방식). 보충 자료는 <b>RAG 자료</b> 탭에서 이 인물에 연결해 추가하세요.</p>`;
 
-async function gh(path: string, init: RequestInit = {}) {
-  return fetch(`https://api.github.com/repos/${conf.repo}/${path}`, {
-    ...init,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token()}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-    },
+  const inp = {
+    name: $<HTMLInputElement>('.p-name', pane),
+    era: $<HTMLInputElement>('.p-era', pane),
+    year: $<HTMLInputElement>('.p-year', pane),
+    kw: $<HTMLInputElement>('.p-kw', pane),
+    text: $<HTMLTextAreaElement>('.p-text', pane),
+  };
+  const fill = (p: Persona) => {
+    inp.name.value = p.name;
+    inp.era.value = p.era;
+    inp.year.value = String(p.maxYear);
+    inp.kw.value = p.keyword;
+    inp.text.value = p.persona;
+  };
+  const state = $('.state', pane);
+  const refresh = () => {
+    state.textContent = personas[fid] ? '수정됨 (서버 값 사용)' : '기본값';
+    state.className = `state ${personas[fid] ? 'edit' : ''}`;
+  };
+  fill(cur);
+  refresh();
+  let t = 0;
+  const changed = () => {
+    const p: Persona = {
+      name: inp.name.value.trim() || def.name,
+      era: inp.era.value.trim(),
+      maxYear: Math.max(0, Math.min(3000, Number(inp.year.value) || def.maxYear)),
+      keyword: inp.kw.value.trim() || def.keyword,
+      persona: inp.text.value.trim() || def.persona,
+    };
+    if (JSON.stringify(p) === JSON.stringify(def)) delete personas[fid];
+    else personas[fid] = p;
+    refresh();
+    clearTimeout(t);
+    t = window.setTimeout(() => (saveDraft(), renderList()), 300);
+  };
+  Object.values(inp).forEach((el) => el.addEventListener('input', changed));
+  $('.reset', pane).addEventListener('click', () => {
+    if (!personas[fid] || !confirm('이 인물의 설정을 앱 기본값으로 되돌릴까요?')) return;
+    delete personas[fid];
+    fill(def);
+    refresh();
+    saveDraft();
+    renderList();
   });
+  $('.back', pane).addEventListener('click', () => select(null));
+}
+
+// ---------- 서버에 저장 ----------
+interface Op {
+  label: string;
+  method: 'PUT' | 'DELETE';
+  path: string;
+  body?: string;
+  headers?: Record<string, string>;
+}
+
+/** 바뀐 항목 → 서버 요청 목록 */
+function plan(): Op[] {
+  const ops: Op[] = [];
+  const targets = new Set(
+    ragChanged()
+      .filter((k) => k[0] === 'o' || k[0] === 'h')
+      .map((k) => k.slice(2)),
+  );
+  for (const id of targets) {
+    const name = targetDocName(id);
+    const s = byId.get(id)!;
+    if (edits.hidden.includes(id)) {
+      ops.push({ label: `${s.name} 제외`, method: 'PUT', path: docPath(name), body: docText([['출처', 'RAG 자료 편집기'], ['대상', id], ['제외', '예']], '') });
+    } else if (id in edits.overrides) {
+      ops.push({ label: `${s.name} 글 바꿈`, method: 'PUT', path: docPath(name), body: docText([['출처', 'RAG 자료 편집기 (고침)'], ['대상', id]], edits.overrides[id]) });
+    } else if (targetDoc.has(id)) {
+      ops.push({ label: `${s.name} 원문으로`, method: 'DELETE', path: docPath(name) });
+    }
+  }
+
+  const titles = new Map<string, string>();
+  for (const x of edits.extra) {
+    if (!x.title || !x.text) throw new Error(`추가 자료 '${x.title || '(제목 없음)'}' 의 제목과 내용을 채워 주세요.`);
+    const k = nameKey(x.title);
+    if (titles.has(k)) throw new Error(`추가 자료 제목 ${josa(`'${x.title}'`, '이/가')} 겹칩니다. 서버 문서 이름이므로 서로 달라야 합니다.`);
+    if ([...targetDoc.values()].some((n) => nameKey(n) === k)) throw new Error(`${josa(`'${x.title}'`, '은/는')} 고친 글 문서 이름과 겹칩니다. 다른 제목을 써 주세요.`);
+    titles.set(k, x.id);
+  }
+  for (const key of ragChanged().filter((k) => k[0] === 'x')) {
+    const id = key.slice(2);
+    const before = base.extra.find((v) => v.id === id);
+    const x = edits.extra.find((v) => v.id === id);
+    if (x) {
+      const link = x.link && byId.has(x.link) ? x.link : undefined;
+      ops.push({
+        label: `추가 자료 ${x.title}`,
+        method: 'PUT',
+        path: docPath(x.title),
+        body: docText([['출처', x.source], ['연도', x.years], ['연결', link]], x.text),
+      });
+    }
+    // 제목이 바뀌었거나 지운 자료는 예전 문서를 지운다 (새 제목이 같은 열쇠면 덮어쓰기로 충분)
+    if (before && (!x || nameKey(before.title) !== nameKey(x.title))) {
+      ops.push({ label: `추가 자료 ${before.title} 삭제`, method: 'DELETE', path: docPath(before.title) });
+    }
+  }
+
+  if (personaChanged().length) {
+    ops.push({
+      label: `외부 RAG 인물 설정 ${personaChanged().length}명`,
+      method: 'PUT',
+      path: '/store/personas.json',
+      body: JSON.stringify({ figures: personas }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return ops;
 }
 
 async function publish() {
-  const keys = changedKeys();
-  if (!keys.length) return;
-  if (!token()) return openConf('먼저 GitHub 토큰을 넣어 주세요.');
+  if (!changedCount()) return;
+  if (!uploadKey()) return openConf('먼저 업로드 키를 넣어 주세요.');
+  let ops: Op[];
+  try {
+    ops = plan();
+  } catch (e) {
+    return notice(`❌ ${esc((e as Error).message)}`, 'err');
+  }
   const btn = $<HTMLButtonElement>('[data-act=publish]');
   btn.disabled = true;
-  btn.textContent = '반영 중…';
+  btn.textContent = '저장 중…';
+  const done: string[] = [];
+  const warns: string[] = [];
   try {
-    // 최신 게시본을 받아 내가 바꾼 항목만 덮어쓴다 (다른 사람이 먼저 저장한 변경은 유지)
-    const cur = await gh(`contents/${FILE}`);
-    if (cur.status === 401) throw new Error('토큰이 올바르지 않거나 만료되었습니다.');
-    if (cur.status === 404 && !(await gh('')).ok) throw new Error(`저장소 ${conf.repo} 에 접근할 수 없습니다.`);
-    const file = cur.ok ? ((await cur.json()) as { sha: string; content: string }) : undefined;
-    const remote = normEdits(file ? (JSON.parse(b64decode(file.content)) as Partial<RagEdits>) : undefined);
-    const merged = clone(remote);
-    for (const k of keys) applyKey(merged, edits, k);
-    merged.updatedAt = new Date().toISOString();
-    const body = JSON.stringify(merged, null, 2) + '\n';
-    const put = await gh(`contents/${FILE}`, {
-      method: 'PUT',
-      body: JSON.stringify({ message: `RAG 자료 수정 ${keys.length}건 (RAG 자료 편집기)`, content: b64encode(body), ...(file ? { sha: file.sha } : {}) }),
-    });
-    if (put.status === 403 || put.status === 404) throw new Error('토큰에 이 저장소의 Contents 쓰기 권한이 없습니다.');
-    if (put.status === 409) throw new Error('그 사이에 다른 저장이 있었습니다. 다시 눌러 주세요.');
-    if (!put.ok) throw new Error(`GitHub 오류 ${put.status}`);
-    const res = (await put.json()) as { commit: { html_url: string } };
-    base = clone(merged);
-    edits = clone(merged);
-    saveDraft();
-    renderList();
-    if (selected) select(selected);
-    notice(
-      `✅ ${keys.length}건을 반영했습니다. 배포(약 2~3분)가 끝나면 RAG 서버 대화에 쓰입니다. <a href="${res.commit.html_url}" target="_blank" rel="noopener">커밋</a> · <a href="https://github.com/${conf.repo}/actions" target="_blank" rel="noopener">배포 진행 보기</a>`,
-      'ok',
-    );
+    for (const op of ops) {
+      const r = await api(op.path, { method: op.method, body: op.body, headers: { 'X-Upload-Key': uploadKey(), ...(op.headers ?? {}) } });
+      const d = (await r.json().catch(() => ({}))) as { error?: string; warning?: string };
+      if (r.status === 401) throw new Error('업로드 키가 올바르지 않습니다.');
+      if (!r.ok && !(op.method === 'DELETE' && r.status === 404)) throw new Error(`${op.label}: ${d.error ?? `서버 오류 ${r.status}`}`);
+      if (d.warning) warns.push(`${op.label}: ${d.warning}`);
+      done.push(op.label);
+    }
+    safeSet(localStorage, DRAFT_KEY, null);
+    await reload();
+    notice(`✅ ${done.length}건을 서버에 저장했습니다. 1분 안에 RAG 서버 대화와 앱의 백엔드 RAG 에 쓰입니다.${warns.length ? `<br/>⚠ ${warns.map(esc).join('<br/>⚠ ')}` : ''}`, 'ok');
   } catch (e) {
-    notice(`❌ 반영하지 못했습니다: ${esc(String((e as Error).message ?? e))}`, 'err');
+    notice(`❌ 저장하지 못했습니다${done.length ? ` (먼저 ${done.length}건은 저장됨)` : ''}: ${esc(String((e as Error).message ?? e))}`, 'err');
+    if (done.length) {
+      // 일부만 저장된 경우: 서버 상태를 다시 받고, 남은 변경은 초안으로 다시 얹는다
+      const keep = { edits: clone(edits), personas: clone(personas) };
+      await reload().catch(() => undefined);
+      for (const k of [...allKeys(base, keep.edits)]) applyKey(edits, keep.edits, k);
+      personas = keep.personas;
+      saveDraft();
+      renderList();
+    }
   } finally {
-    btn.textContent = 'GitHub 에 반영';
+    btn.textContent = '서버에 저장';
     renderHeader();
   }
 }
@@ -524,49 +822,45 @@ function modal(html: string): HTMLElement {
 }
 
 function openConf(msg = '') {
-  const remembered = !!safeGet(localStorage, TOKEN_KEY);
+  const remembered = !!safeGet(localStorage, UPLOAD_KEY);
   const m = modal(`
-    <h3>GitHub 설정</h3>
+    <h3>업로드 키</h3>
     ${msg ? `<p class="err">${esc(msg)}</p>` : ''}
-    <label>저장소<input class="repo" value="${esc(conf.repo)}" placeholder="owner/repo" /></label>
-    <label>토큰 (fine-grained personal access token)<input class="tok" type="password" autocomplete="off" value="${esc(token())}" placeholder="github_pat_…" /></label>
+    <label>업로드 키<input class="tok" type="password" autocomplete="off" value="${esc(uploadKey())}" placeholder="관리자에게 받은 키" /></label>
     <label class="chk"><input type="checkbox" class="rem" ${remembered ? 'checked' : ''}/> 이 브라우저에 기억하기 (공용 PC 에서는 끄세요)</label>
     <ol class="help">
-      <li>GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> → Generate new token</li>
-      <li>Repository access: <b>Only select repositories</b> → 이 저장소만</li>
-      <li>Permissions → Repository permissions → <b>Contents: Read and write</b></li>
-      <li>만든 토큰을 위에 붙여 넣기. 토큰은 이 브라우저에만 저장되고 GitHub API 로만 보냅니다.</li>
+      <li>서버 저장소(3D 모델·RAG 자료)에 쓰는 키입니다. Android 앱 관리자 모드와 같은 키입니다.</li>
+      <li>키는 서버 관리자가 Worker 비밀값(<code>UPLOAD_KEY</code>)으로 등록합니다. 로컬에서는 <code>worker/.dev.vars</code> 에 있습니다.</li>
+      <li>키는 이 브라우저에만 저장되고 역사담 서버로만 보냅니다.</li>
     </ol>
     <div class="row"><button class="btn ghost" data-close>취소</button><button class="btn solid" data-save>저장</button></div>`);
   $('[data-close]', m).addEventListener('click', () => m.remove());
   $('[data-save]', m).addEventListener('click', () => {
-    conf.repo = $<HTMLInputElement>('.repo', m).value.trim() || conf.repo;
-    safeSet(localStorage, CONF_KEY, JSON.stringify({ repo: conf.repo }));
     const tok = $<HTMLInputElement>('.tok', m).value.trim();
     const rem = $<HTMLInputElement>('.rem', m).checked;
-    safeSet(localStorage, TOKEN_KEY, tok && rem ? tok : null);
-    safeSet(sessionStorage, TOKEN_KEY, tok && !rem ? tok : null);
+    safeSet(localStorage, UPLOAD_KEY, tok && rem ? tok : null);
+    safeSet(sessionStorage, UPLOAD_KEY, tok && !rem ? tok : null);
     m.remove();
-    notice('설정을 저장했습니다.', 'ok');
+    notice('업로드 키를 저장했습니다.', 'ok');
   });
 }
 $('[data-act=conf]').addEventListener('click', () => openConf());
 
-// 초안 파일 내려받기·불러오기 (토큰 없이 작업을 넘길 때)
+// 작업본 파일 내려받기·불러오기 (키 없이 작업을 넘길 때)
 $('[data-act=io]').addEventListener('click', () => {
   const m = modal(`
     <h3>파일로 주고받기</h3>
-    <p>GitHub 토큰 없이 작업할 때, 현재 작업본을 <code>rag-edits.json</code> 으로 내려받아 관리자에게 보내거나 저장소의 <code>${FILE}</code> 에 직접 올릴 수 있습니다.</p>
+    <p>업로드 키 없이 작업할 때, 현재 작업본을 JSON 파일로 내려받아 관리자에게 보내면 관리자가 불러와 서버에 저장할 수 있습니다.</p>
     <div class="row">
       <button class="btn outline" data-dl>작업본 내려받기</button>
       <label class="btn outline">파일 불러오기<input type="file" accept="application/json,.json" hidden /></label>
     </div>
-    <div class="row"><button class="btn ghost danger" data-drop>반영 안 한 변경 모두 버리기</button><button class="btn ghost" data-close>닫기</button></div>`);
+    <div class="row"><button class="btn ghost danger" data-drop>저장 안 한 변경 모두 버리기</button><button class="btn ghost" data-close>닫기</button></div>`);
   $('[data-close]', m).addEventListener('click', () => m.remove());
   $('[data-dl]', m).addEventListener('click', () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(edits, null, 2) + '\n'], { type: 'application/json' }));
-    a.download = 'rag-edits.json';
+    a.href = URL.createObjectURL(new Blob([JSON.stringify({ edits, personas }, null, 2) + '\n'], { type: 'application/json' }));
+    a.download = 'rag-editor-work.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
@@ -574,21 +868,26 @@ $('[data-act=io]').addEventListener('click', () => {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
     try {
-      const v = normEdits(JSON.parse(await f.text()) as Partial<RagEdits>);
-      if (typeof v.overrides !== 'object' || !Array.isArray(v.hidden) || !Array.isArray(v.extra)) throw new Error();
-      edits = v;
+      const v = JSON.parse(await f.text()) as { edits?: Partial<Edits>; personas?: Record<string, Persona> } & Partial<Edits>;
+      // 예전 rag-edits.json 형식(overrides·hidden·extra)도 받는다
+      const e2 = { ...emptyEdits(), ...(v.edits ?? v) } as Edits;
+      if (typeof e2.overrides !== 'object' || !Array.isArray(e2.hidden) || !Array.isArray(e2.extra)) throw new Error();
+      e2.extra = e2.extra.map((x) => ({ ...x, id: base.extra.some((b) => b.id === x.id) ? x.id : `new-${x.id}` }));
+      edits = { overrides: e2.overrides, hidden: e2.hidden, extra: e2.extra };
+      if (v.personas) personas = v.personas;
       saveDraft();
       renderList();
       select(null);
       m.remove();
-      notice(`파일을 불러왔습니다. 반영 안 한 변경 ${changedKeys().length}건.`, 'ok');
+      notice(`파일을 불러왔습니다. 저장 안 한 변경 ${changedCount()}건.`, 'ok');
     } catch {
-      notice('rag-edits.json 형식이 아닙니다.', 'err');
+      notice('편집기 작업본 형식이 아닙니다.', 'err');
     }
   });
   $('[data-drop]', m).addEventListener('click', () => {
-    if (!confirm('반영하지 않은 변경을 모두 버릴까요?')) return;
+    if (!confirm('저장하지 않은 변경을 모두 버릴까요?')) return;
     edits = clone(base);
+    personas = clone(personaBase);
     saveDraft();
     renderList();
     select(null);
@@ -597,17 +896,24 @@ $('[data-act=io]').addEventListener('click', () => {
 });
 
 window.addEventListener('beforeunload', (e) => {
-  if (changedKeys().length) e.preventDefault(); // 초안은 저장돼 있지만 반영 전임을 알린다
+  if (changedCount()) e.preventDefault(); // 초안은 저장돼 있지만 서버 저장 전임을 알린다
 });
 
 // ---------- 시작 ----------
+async function reload() {
+  const [server, ps] = await Promise.all([loadServer(), apiJson<{ figures?: Record<string, Persona> }>('/store/personas.json')]);
+  base = server;
+  edits = clone(server);
+  personaBase = ps.figures ?? {};
+  personas = clone(personaBase);
+  saveDraft();
+  renderList();
+  if (selected) select(selected);
+}
+
 async function start() {
   listEl.innerHTML = '<p class="more">자료 목록을 불러오는 중…</p>';
-  const [index, figs, published] = await Promise.all([
-    json<HeritageIndex>('index.json'),
-    json<{ figures: Figure[] }>('figures.json'),
-    json<Partial<RagEdits>>(`rag-edits.json?t=${Date.now()}`).catch(() => undefined),
-  ]);
+  const [index, figs] = await Promise.all([json<HeritageIndex>('index.json'), json<{ figures: Figure[] }>('figures.json')]);
   for (const f of figs.figures) {
     figures.set(f.id, f);
     sources.push({ id: `fig:${f.id}`, name: f.name, sub: `${f.title}, ${f.years}`, kind: 'figure' });
@@ -617,16 +923,29 @@ async function start() {
   }
   sources.forEach((s) => byId.set(s.id, s));
 
-  base = normEdits(published);
-  edits = clone(base);
-  const draft = JSON.parse(safeGet(localStorage, DRAFT_KEY) ?? 'null') as { base: RagEdits; edits: RagEdits } | null;
+  try {
+    await reload();
+  } catch (e) {
+    notice(`서버 자료를 불러오지 못했습니다: ${esc(String((e as Error).message ?? e))}. 원본 데이터만 보여 줍니다.`, 'err');
+  }
+  const draft = JSON.parse(safeGet(localStorage, DRAFT_KEY) ?? 'null') as {
+    base: Edits;
+    edits: Edits;
+    personaBase?: Record<string, Persona>;
+    personas?: Record<string, Persona>;
+  } | null;
   if (draft) {
-    // 초안의 변경분을 최신 게시본 위에 다시 얹는다
-    const draftBase = normEdits(draft.base);
-    const draftEdits = normEdits(draft.edits);
-    const keys = [...allKeys(draftBase, draftEdits)].filter((k) => keyValue(draftBase, k) !== keyValue(draftEdits, k));
-    for (const k of keys) applyKey(edits, draftEdits, k);
-    if (keys.length) notice(`반영하지 않은 초안 ${keys.length}건을 이어서 불러왔습니다. 「GitHub 에 반영」을 누르면 게시됩니다.`);
+    // 초안의 변경분을 최신 서버 상태 위에 다시 얹는다
+    const keys = [...allKeys(draft.base, draft.edits)].filter((k) => keyValue(draft.base, k) !== keyValue(draft.edits, k));
+    for (const k of keys) applyKey(edits, draft.edits, k);
+    let pn = 0;
+    for (const id of new Set([...Object.keys(draft.personaBase ?? {}), ...Object.keys(draft.personas ?? {})])) {
+      if (JSON.stringify(draft.personaBase?.[id]) === JSON.stringify(draft.personas?.[id])) continue;
+      if (draft.personas?.[id]) personas[id] = draft.personas[id];
+      else delete personas[id];
+      pn++;
+    }
+    if (keys.length + pn) notice(`저장하지 않은 초안 ${keys.length + pn}건을 이어서 불러왔습니다. 「서버에 저장」을 누르면 저장됩니다.`);
   }
   saveDraft();
   renderList();

@@ -13,15 +13,17 @@ GitHub Pages 로 배포하고 사용자는 폰으로 접속한다. 사용자와�
   - 해시 라우터 `router.ts`, 화면 `screens/*`, 상태 `app.ts`
   - 반경 공용 `radius.ts`, 대화 방식(기본/RAG/외부 RAG) `conversation.ts`, 기기 저장 `store.ts` (localStorage `yeoksadam:v2`)
 - `src/editor/` + `editor/index.html` — RAG 자료 편집기. 웹앱과 분리된 두 번째 진입점이며 웹앱에 링크하지 않는다.
+  - 「서버에 저장」으로 Worker 서버 저장소에 `.md` 문서를 올린다 (업로드 키). 「외부 RAG 인물 설정」 탭은 Android 백엔드 RAG 인물 설정.
 - `worker/` — Cloudflare Worker
   - `/chat`, `/rag`(BM25 + citations), `/vision`, `/tts`(Azure)
+  - 서버 저장소 `store.ts` (Workers KV `STORE`): 3D 모델 `/model/<인물 이름>.glb`, RAG 문서 `/doc/<이름>.md`, `/store/*`. 쓰기는 `UPLOAD_KEY`. `/rag` 는 업로드 문서를 기존 색인과 함께 검색. 계획·현황은 `docs/SERVER-STORAGE.md`
   - Claude 모델 `claude-opus-5`
   - `ragText.ts` 는 `scripts/build-rag.ts` 와 공용
 - `scripts/` — 데이터 수집과 RAG 색인 (`data:fetch` → `data:hyangto` → `data:tour` → `data:rag`), 개발 환경 `setup.ps1`/`setup.sh`
 - `public/data/`
   - `index.json` (유적 1,486곳), `detail/<id>.json`
   - `figures.json` (인물 16명, 수작업 — `died` 지식 경계, `speech`·`greet`·`extId`)
-  - `rag/` (생성물), `rag-edits.json` (편집기가 커밋)
+  - `rag/` (생성물). 사람이 고친 RAG 자료는 저장소가 아니라 서버 저장소(KV)에 있다
 - `tools/` — 사용법 화면 캡처(`capture-usage.mjs`), 초상 배경 제거(`make-cutout.mjs`). 별도 package.json.
 - `.github/workflows/`
   - `deploy.yml`: `data:rag` 후 빌드 → Pages
