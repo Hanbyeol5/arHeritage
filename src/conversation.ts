@@ -159,7 +159,7 @@ export async function reply(f: Figure, history: Line[]): Promise<Line> {
       figureId: f.id,
       siteId: app.nearestSiteOf(f).site.id,
       lines: history.slice(-20).map(({ mine, text, system }) => ({ mine, text, system })),
-      boundary: store.boundary,
+      boundary: true, // 지식 경계는 늘 켠다 (서버도 무시하고 켬)
     });
     if (!ok || typeof data.text !== 'string') return sys((data.error as string) ?? `대답을 받지 못했습니다. (${status})`);
     return { mine: false, text: data.text, sources: (data.sources as Source[] | undefined) ?? undefined };

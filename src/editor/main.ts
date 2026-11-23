@@ -18,7 +18,6 @@ import { josa } from '../ui/josa.ts';
 const BASE = import.meta.env.BASE_URL;
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '');
 const DRAFT_KEY = 'yeoksadam-editor:draft2';
-const UPLOAD_KEY = 'yeoksadam-editor:upload-key';
 
 type Kind = 'heritage' | 'local' | 'tour' | 'figure';
 interface Source {
@@ -116,7 +115,6 @@ let mode: 'rag' | 'persona' = 'rag';
 let selected: string | null = null; // 출처 id, "x:<추가 자료 id>", 인물 설정은 "p:<인물 id>"
 let query = '';
 let filter = 'all';
-const uploadKey = () => safeGet(sessionStorage, UPLOAD_KEY) ?? safeGet(localStorage, UPLOAD_KEY) ?? '';
 
 // ---------- 차이 계산 (o: 글 바꾸기, h: 제외, x: 추가 자료, p: 인물 설정) ----------
 function keyValue(e: Edits, key: string): string | undefined {
@@ -302,7 +300,6 @@ root.innerHTML = `
     <div class="ed-status"></div>
     <div class="ed-actions">
       <button class="btn ghost" data-act="io" title="작업본 내려받기·불러오기">파일</button>
-      <button class="btn ghost" data-act="conf">업로드 키</button>
       <button class="btn solid" data-act="publish">서버에 저장</button>
     </div>
   </header>
@@ -770,7 +767,6 @@ function plan(): Op[] {
 
 async function publish() {
   if (!changedCount()) return;
-  if (!uploadKey()) return openConf('먼저 업로드 키를 넣어 주세요.');
   let ops: Op[];
   try {
     ops = plan();
@@ -784,9 +780,8 @@ async function publish() {
   const warns: string[] = [];
   try {
     for (const op of ops) {
-      const r = await api(op.path, { method: op.method, body: op.body, headers: { 'X-Upload-Key': uploadKey(), ...(op.headers ?? {}) } });
+      const r = await api(op.path, { method: op.method, body: op.body, headers: op.headers ?? {} });
       const d = (await r.json().catch(() => ({}))) as { error?: string; warning?: string };
-      if (r.status === 401) throw new Error('업로드 키가 올바르지 않습니다.');
       if (!r.ok && !(op.method === 'DELETE' && r.status === 404)) throw new Error(`${op.label}: ${d.error ?? `서버 오류 ${r.status}`}`);
       if (d.warning) warns.push(`${op.label}: ${d.warning}`);
       done.push(op.label);
@@ -821,36 +816,12 @@ function modal(html: string): HTMLElement {
   return m;
 }
 
-function openConf(msg = '') {
-  const remembered = !!safeGet(localStorage, UPLOAD_KEY);
-  const m = modal(`
-    <h3>업로드 키</h3>
-    ${msg ? `<p class="err">${esc(msg)}</p>` : ''}
-    <label>업로드 키<input class="tok" type="password" autocomplete="off" value="${esc(uploadKey())}" placeholder="관리자에게 받은 키" /></label>
-    <label class="chk"><input type="checkbox" class="rem" ${remembered ? 'checked' : ''}/> 이 브라우저에 기억하기 (공용 PC 에서는 끄세요)</label>
-    <ol class="help">
-      <li>서버 저장소(3D 모델·RAG 자료)에 쓰는 키입니다. Android 앱 관리자 모드와 같은 키입니다.</li>
-      <li>키는 서버 관리자가 Worker 비밀값(<code>UPLOAD_KEY</code>)으로 등록합니다. 로컬에서는 <code>worker/.dev.vars</code> 에 있습니다.</li>
-      <li>키는 이 브라우저에만 저장되고 역사담 서버로만 보냅니다.</li>
-    </ol>
-    <div class="row"><button class="btn ghost" data-close>취소</button><button class="btn solid" data-save>저장</button></div>`);
-  $('[data-close]', m).addEventListener('click', () => m.remove());
-  $('[data-save]', m).addEventListener('click', () => {
-    const tok = $<HTMLInputElement>('.tok', m).value.trim();
-    const rem = $<HTMLInputElement>('.rem', m).checked;
-    safeSet(localStorage, UPLOAD_KEY, tok && rem ? tok : null);
-    safeSet(sessionStorage, UPLOAD_KEY, tok && !rem ? tok : null);
-    m.remove();
-    notice('업로드 키를 저장했습니다.', 'ok');
-  });
-}
-$('[data-act=conf]').addEventListener('click', () => openConf());
 
-// 작업본 파일 내려받기·불러오기 (키 없이 작업을 넘길 때)
+// 작업본 파일 내려받기·불러오기 (다른 사람에게 작업을 넘길 때)
 $('[data-act=io]').addEventListener('click', () => {
   const m = modal(`
     <h3>파일로 주고받기</h3>
-    <p>업로드 키 없이 작업할 때, 현재 작업본을 JSON 파일로 내려받아 관리자에게 보내면 관리자가 불러와 서버에 저장할 수 있습니다.</p>
+    <p>현재 작업본을 JSON 파일로 내려받아 다른 사람에게 넘기거나, 받은 작업본을 불러와 이어서 고친 뒤 서버에 저장할 수 있습니다.</p>
     <div class="row">
       <button class="btn outline" data-dl>작업본 내려받기</button>
       <label class="btn outline">파일 불러오기<input type="file" accept="application/json,.json" hidden /></label>

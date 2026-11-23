@@ -130,10 +130,9 @@ function settingsCard(): string {
         <button class="pill outline sm set-test">연결 확인</button>
         <p class="set-msg"></p>
       </div>
-      <label class="set-opt">
-        <input type="checkbox" class="set-boundary" ${store.boundary ? 'checked' : ''} />
-        <span><b>지식 경계 필터</b><small>인물은 세상을 떠난 해 이후의 일을 모른다고 답해요. RAG 서버 방식에서는 사후의 기록을 검색에서 빼요. (해설사는 해당 없음)</small></span>
-      </label>
+      <div class="set-opt">
+        <span><b>지식 경계 · 늘 켜짐</b><small>인물은 세상을 떠난 해 이후의 일(연도·사건·근대 문물·후대 인물)을 물으면 답을 지어내지 않고 모른다고 답해요. RAG 서버 방식에서는 사후의 기록도 검색에서 빼요. (해설사는 해당 없음)</small></span>
+      </div>
       <div class="set-history">
         <span>대화 기록: ${savedRooms() ? `인물 ${savedRooms()}명과의 대화가 이 기기에 저장됨` : '저장된 대화 없음'}</span>
         ${savedRooms() ? '<button class="pill outline sm danger set-clear">모두 지우기</button>' : ''}
@@ -151,7 +150,6 @@ function bindSettings(root: HTMLElement) {
     r.addEventListener('change', () => store.setChat(r.value as ChatMode, url.value)),
   );
   url.addEventListener('change', () => store.setChat('custom', url.value));
-  box.querySelector<HTMLInputElement>('.set-boundary')!.addEventListener('change', (e) => store.setBoundary((e.target as HTMLInputElement).checked));
   box.querySelector('.set-clear')?.addEventListener('click', () => {
     if (!confirm('모든 인물과의 대화 기록을 지울까요?')) return;
     clearSessions();

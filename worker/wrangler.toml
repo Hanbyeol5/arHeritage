@@ -12,7 +12,7 @@ ALLOWED_ORIGINS = "https://samcho93.github.io,http://localhost:5173,https://hanb
 APP_KEYS = "historydam-android-v1"
 
 # 서버 저장소: 3D 인물 모델 · RAG 자료 · 외부 RAG 인물 설정 (src/store.ts, docs/SERVER-STORAGE.md)
-# 업로드 키는 `npx wrangler secret put UPLOAD_KEY` (로컬은 .dev.vars)
+# 쓰기도 읽기와 같이 허용 출처·앱 키로만 받는다 (업로드 키 없음)
 [[kv_namespaces]]
 binding = "STORE"
 id = "abfeb79376d0489380ec478cd27ab3ee"

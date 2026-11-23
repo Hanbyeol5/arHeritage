@@ -17,6 +17,7 @@
 
 1. [주요 기능](#1-주요-기능)
 2. [시스템 구성도](#2-시스템-구성도)
+   - [앱 · 서버 관계](#25-앱--서버-관계-android-앱--웹앱--편집기--worker--저장소)
 3. [기술 스택](#3-기술-스택)
 4. [디렉터리 구조](#4-디렉터리-구조)
 5. [데이터 파이프라인](#5-데이터-파이프라인)
@@ -25,6 +26,8 @@
 8. [지도 (네이버 지도)](#8-지도-네이버-지도)
 9. [역사 인물·해설사 대화 (RAG 서버 선택 포함)](#9-역사-인물해설사-대화)
    - [RAG 자료 편집기 사용법](#rag-editor-usage)
+   - [회원 · 사용자별 저장 · 퀴즈](#96-회원--사용자별-저장--퀴즈-workersrcusersts-android-앱)
+   - [RAG 데이터 저장 형식](#97-rag-데이터-저장-형식)
 10. [음성 (말하기·듣기)](#10-음성-말하기듣기)
 11. [유물·건물 인식 카메라](#11-유물건물-인식-카메라)
 12. [인물 초상과 AR 컷아웃](#12-인물-초상과-ar-컷아웃)
@@ -107,7 +110,7 @@ flowchart LR
   VIS --> CLAUDE
   TTS --> AZURE
   CHAT -- 인물·유적 JSON --> PAGES
-  ED -- "서버에 저장<br/>PUT /doc · /store/personas.json<br/>(업로드 키)" --> RAG
+  ED -- "서버에 저장<br/>PUT /doc · /store/personas.json" --> RAG
   RAG -- "업로드 문서·인물 설정<br/>(1분마다 확인)" --> KV[("Cloudflare KV<br/>서버 저장소")]
   ED -. "대화로 확인" .-> RAG
   ACT -- "빌드·배포<br/>(data:rag 색인 재생성)" --> PAGES
@@ -181,6 +184,92 @@ flowchart TD
   E["서버 저장소 rag 문서 (.md)<br/>편집기·폰 관리자 모드"] -->|Worker /rag 가 함께 검색| APP
 ```
 
+### 2.5 앱 · 서버 관계 (Android 앱 · 웹앱 · 편집기 · Worker · 저장소)
+
+Android 앱(historydam)·웹앱·RAG 편집기는 모두 같은 **Cloudflare Worker** 를 씁니다. Worker 뒤에는 정적 데이터(GitHub Pages)와 서버 저장소(Workers KV)가 있습니다. 앱만 쓰는 외부 서비스도 있는데, 백엔드 RAG 의 Gemini 와 공공기관 API 는 앱이 직접 부릅니다.
+
+```mermaid
+flowchart LR
+  subgraph CL["사용자 기기"]
+    APP["Android 앱 (historydam)<br/>로그인 · 대화 · AR · 3D · 퀴즈<br/>관리자 업로드"]
+    WEB["웹앱 (PWA)<br/>GitHub Pages"]
+    ED["RAG 자료 편집기<br/>/editor/"]
+  end
+
+  subgraph CF["Cloudflare Worker · yeoksadam-api"]
+    direction TB
+    TALK["대화<br/>/chat · /rag<br/>지식 경계 가드"]
+    VIS["/vision · /tts"]
+    STO["서버 저장소<br/>/store/* · /model/* · /doc/*"]
+    USR["회원 · 사용자별 저장<br/>/auth/* · /me/*<br/>(기록 · 내 RAG · 퀴즈)"]
+  end
+
+  subgraph KV["Workers KV · STORE (사용자별 JSON 파일)"]
+    direction TB
+    K1["models/·idx:models<br/>3D 모델 (.glb)"]
+    K2["doc:·idx:docs<br/>RAG 문서 (.md)"]
+    K3["ext:personas<br/>외부 RAG 인물 설정"]
+    K4["users/&lt;아이디&gt;.json<br/>users/&lt;아이디&gt;/chats · learned · quiz<br/>sessions/&lt;토큰&gt;"]
+  end
+
+  PAGES[("GitHub Pages 정적 데이터<br/>index.json · detail/ · figures.json<br/>rag/ (BM25 색인)")]
+  CLAUDE["Claude API<br/>claude-opus-5"]
+  AZ["Azure 음성"]
+  GEM["Gemini<br/>(앱 백엔드 RAG · 사진 인식)"]
+  PUB["공공기관 API 7곳<br/>(박물관·기록원·국가유산청…)"]
+  NAV["네이버 지도"]
+
+  APP -- "X-App-Key · Bearer 토큰" --> TALK
+  APP --> VIS
+  APP -- "모델 내려받기 · 관리자 업로드" --> STO
+  APP -- "가입 · 로그인 · 질문 기록 · 퀴즈" --> USR
+  APP -- "백엔드 RAG" --> GEM
+  APP --> PUB
+  APP --> NAV
+  WEB -- Origin --> TALK
+  WEB --> VIS
+  WEB --> NAV
+  ED -- "서버에 저장" --> STO
+  ED -. "대화로 확인" .-> TALK
+
+  TALK -- "색인·인물·유적" --> PAGES
+  TALK -- "업로드 문서 · 내 RAG (1분마다·요청마다)" --> KV
+  TALK --> CLAUDE
+  VIS --> CLAUDE
+  VIS --> AZ
+  STO --> KV
+  USR --> KV
+  USR -- 퀴즈 만들기 --> CLAUDE
+  APP -. "카탈로그 JSON" .-> PAGES
+```
+
+**로그인한 사용자가 질문할 때**
+
+```mermaid
+sequenceDiagram
+  participant A as Android 앱
+  participant W as Worker
+  participant K as KV (users/아이디/…)
+  participant L as LLM (Claude · Gemini)
+  A->>A: 지식 경계 가드 — 사후의 연도·사건·후대 인물이면 LLM 없이 「알지 못하네」
+  alt RAG 서버 방식
+    A->>W: POST /rag (Bearer 토큰)
+    W->>W: 가드 → 색인 + 업로드 문서 + 내 RAG(me:인물) 함께 BM25
+    W->>L: 근거 문서 + 질문 (인용)
+    W-->>A: 답 + 근거(sources)
+  else 백엔드 RAG (앱 안)
+    A->>W: GET /store/context · /me/context (업로드 자료 · 내 RAG)
+    A->>L: Gemini (공공기관 7곳 자료 + 위 자료)
+  end
+  A->>W: POST /me/log {질문, 답, 방식, 근거 있음?}
+  W->>K: chats.json 에 추가
+  opt RAG 계열 방식인데 근거 없이 LLM 이 답함 (거절·인사 제외)
+    W->>K: learned.json 에 추가 → 다음 검색부터 이 사용자의 RAG 자료
+  end
+```
+
+**퀴즈** — 앱이 `POST /me/quiz` 를 부르면 Worker 가 `chats.json` 의 최근 질문·답 30개로 Claude 에게 4지선다 5문제를 만들게 합니다. 문제는 정답을 숨긴 채 내려보냅니다. 보기를 고르면 `POST /me/quiz/answer` 가 서버에서 채점해 정답·해설을 돌려주고, 다 풀면 점수를 `quiz.json` 기록에 남깁니다.
+
 ---
 
 ## 3. 기술 스택
@@ -203,7 +292,7 @@ flowchart TD
 | 서버 | **Cloudflare Workers** + **wrangler** | API 키 보관·중계 (`worker/src/index.ts`) |
 | 입력 검증 | **zod** | Worker 요청 검증, 비전 구조화 출력 스키마 |
 | 검색 (RAG) | **BM25** (한글 바이그램 역색인, 정적 분할 파일) + Claude **citations** | `scripts/build-rag.ts`, `worker/src/ragText.ts`, Worker `/rag` |
-| 서버 저장소 | **Cloudflare Workers KV** + 업로드 키 | `worker/src/store.ts` — 3D 모델(.glb)·RAG 자료(.md)·외부 RAG 인물 설정. 편집기·폰 관리자 모드가 저장, `/rag` 가 기존 색인과 함께 검색 |
+| 서버 저장소 | **Cloudflare Workers KV** | `worker/src/store.ts` — 3D 모델(.glb)·RAG 자료(.md)·외부 RAG 인물 설정. 편집기·폰 관리자 모드가 저장, `/rag` 가 기존 색인과 함께 검색 |
 | 데이터 수집 | Node.js 24 + **tsx**, **fast-xml-parser** | `scripts/*.ts` |
 | 호스팅 | **GitHub Pages** | 정적 웹앱·데이터 JSON |
 | CI/CD | **GitHub Actions** | Pages 배포, Worker 배포, 월간 데이터 갱신 |
@@ -568,18 +657,15 @@ RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 �
 | 조각 미리보기 | 저장될 글이 몇 개의 RAG 조각(최대 500자, 빈 줄 기준)으로 나뉘는지 바로 보여 줌 |
 | 대화로 확인 | Worker `/rag` 에 질문해 답변·인용 근거·검색된 조각 확인 (서버에 저장된 자료 기준) |
 | 초안 자동 저장 | 작업 내용은 브라우저에 초안으로 저장되어 새로 고쳐도 이어짐 |
-| 서버에 저장 | 바뀐 항목만 Worker `PUT/DELETE /doc/<이름>.md`·`PUT /store/personas.json` 으로 저장 (업로드 키 필요) |
-| 파일로 주고받기 | 업로드 키가 없을 때 작업본을 JSON 으로 내려받아 관리자에게 넘김 (예전 `rag-edits.json` 도 불러올 수 있음) |
+| 서버에 저장 | 바뀐 항목만 Worker `PUT/DELETE /doc/<이름>.md`·`PUT /store/personas.json` 으로 저장 |
+| 파일로 주고받기 | 작업본을 JSON 으로 내려받아 다른 사람에게 넘기거나 불러와 이어서 고침 (예전 `rag-edits.json` 도 불러올 수 있음) |
 
 <a id="rag-editor-usage"></a>
 
 **사용법**
 
-준비 (처음 한 번)
-1. PC 브라우저로 **[https://samcho93.github.io/arHeritage/editor/](https://samcho93.github.io/arHeritage/editor/)** 를 엽니다. 폰에서도 열리지만 PC 를 권장합니다.
-2. 오른쪽 위 **업로드 키** 를 누르고 관리자에게 받은 키를 넣습니다.
-   - 공용 PC 에서는 「기억하기」를 끕니다.
-   - 키가 없어도 편집과 「대화로 확인」은 됩니다. 저장만 안 됩니다.
+열기
+- PC 브라우저로 **[https://samcho93.github.io/arHeritage/editor/](https://samcho93.github.io/arHeritage/editor/)** 를 엽니다. 폰에서도 열리지만 PC 를 권장합니다. 따로 로그인·키 입력은 없습니다.
 
 유적·인물 글 고치기 (**RAG 자료** 탭)
 1. 왼쪽 검색창에 유적·인물 이름이나 시군을 입력하고 목록에서 고릅니다.
@@ -606,7 +692,7 @@ RAG 서버가 참고하는 글을 사람이 직접 고치고 보탤 수 있는 �
 1. 위쪽 상태 표시에서 「저장 안 한 변경 N건」을 확인합니다. 작업은 브라우저에 초안으로 자동 저장됩니다.
 2. **서버에 저장** 을 누릅니다. 바뀐 항목만 저장되고 결과 알림이 뜹니다.
 3. 1분쯤 뒤 자료 화면 아래 **🗨 대화로 확인** 을 펼쳐 질문하고, 답변과 「인용된 근거」·「검색된 조각」에 고친 글이 쓰였는지 봅니다.
-4. 키가 없는 사람은 **파일 → 작업본 내려받기** 로 받은 JSON 을 관리자에게 보냅니다. 관리자는 **파일 불러오기** 뒤 저장합니다.
+4. 작업을 다른 사람에게 넘길 때는 **파일 → 작업본 내려받기** 로 받은 JSON 을 보내고, 받은 사람은 **파일 불러오기** 뒤 저장합니다.
 
 폰에서 `.md` 파일로 올리기
 - Android 앱 프로필의 **🗄 서버 저장소 (관리자)** 카드에서 RAG 자료 폴더를 지정하면, 폴더 안의 `.md` 를 같은 서버 저장소에 올릴 수 있습니다.
@@ -631,7 +717,7 @@ sequenceDiagram
   participant E as 편집기 /editor/ · 폰 관리자 모드
   participant W as Worker
   participant K as Cloudflare KV (STORE)
-  E->>W: PUT /doc/<이름>.md (X-Upload-Key)
+  E->>W: PUT /doc/<이름>.md
   W->>W: 머리말 검사 · 대상·연결 이름 → id
   W->>K: doc:<열쇠> 저장 · idx:docs 갱신
   Note over W: /rag 는 1분마다 idx:docs 를 확인
@@ -639,9 +725,9 @@ sequenceDiagram
   W->>W: 기존 색인(GitHub Pages) + 업로드 조각을 함께 BM25 검색<br/>대상 유적은 원문 대신 고친 글
 ```
 
-**업로드 키** — 편집기의 「업로드 키」에 넣습니다. Worker 비밀값 `UPLOAD_KEY` 와 같은 값이며 관리자가 나눠 줍니다(로컬 사본: `worker/.dev.vars`, git 제외). 기본은 탭을 닫으면 지워지는 세션 저장이고, 「기억하기」를 켜야 이 브라우저에 남습니다.
+**쓰기 권한** — 업로드 키는 없습니다(교내 시연용). 서버는 읽기와 같은 기준으로, 허용한 출처(웹앱·편집기 주소)와 앱 키(`X-App-Key`)로 들어온 요청이면 저장을 받습니다.
 
-> 편집기는 누구나 열 수 있지만 **저장은 업로드 키로만** 됩니다.
+> 편집기 주소를 아는 사람은 누구나 서버 자료를 고칠 수 있습니다. 편집기 링크는 팀 안에서만 공유하세요.
 > 고친 글은 **RAG 서버** 방식과 **기본** 방식(인물 소개·연결 유적 설명)에 쓰이고, 인물에 연결한 자료는 Android **백엔드 RAG** 의 참고 자료에도 들어갑니다. 유적 상세 카드의 설명은 원문 그대로입니다.
 
 ### 9.4 historydam 업데이트 반영 — 인물 추가·대화 기록·지식 경계
@@ -672,6 +758,120 @@ sequenceDiagram
 ### 9.5 서버 실행 위치 고정
 
 Cloudflare Workers 는 사용자 가까운 데이터센터에서 실행되는데, 한국 사용자의 요청이 Claude API 미지원 지역(예: 홍콩)을 거치면 `403 Request not allowed` 가 납니다. `wrangler.toml` 의 `[placement] hostname = "api.anthropic.com"` 으로 Claude API 근처(미국)에서 실행되도록 고정했습니다.
+
+
+### 9.6 회원 · 사용자별 저장 · 퀴즈 (`worker/src/users.ts`, Android 앱)
+
+| 기능 | 동작 |
+|---|---|
+| 회원가입 · 로그인 | 앱 프로필 → **로그인 · 회원가입**. 아이디(영문 소문자·숫자·밑줄 3~20자), 비밀번호 6자 이상, 이름. 서버는 DB 없이 `users/<아이디>.json` 파일 하나에 계정을 저장하고, 비밀번호는 PBKDF2-SHA256(소금 16바이트, 30,000회) 해시만 둡니다. 로그인하면 30일짜리 세션 토큰을 주고, 앱은 토큰만 DataStore 에 둡니다 |
+| 사용자별 대화 저장 | 로그인했으면 대화 방식과 관계없이 질문·답을 `POST /me/log` 로 보내 `users/<아이디>/chats.json` 에 인물별로 저장 (인물당 최근 100개) |
+| 대화에서 배운 RAG | RAG 계열 방식(RAG 서버·백엔드 RAG·외부 RAG)에서 **근거 자료(출처) 없이 LLM 이 답한 경우**, 그 질문·답을 `users/<아이디>/learned.json` 에 더합니다 (최근 300개). 다음 질문부터 `/rag` 와 백엔드 RAG 가 **그 사용자의 자료로만** 함께 검색합니다. 다른 사용자의 답에는 섞이지 않습니다. 거절·모른다는 답, 6자 미만 인사, 사후 질문은 배우지 않습니다 |
+| 내 질문 퀴즈 | 프로필 → **📝 내 질문 퀴즈** → 「새 퀴즈 만들기」. 내가 물었던 질문·답으로 4지선다 5문제를 만들고, 보기를 누르면 서버가 채점해 정답·해설을 보여 줍니다. 점수는 `quiz.json` 에 쌓이고 프로필에 최고 점수가 보입니다 |
+| 로그아웃 | 서버의 세션 파일을 지우고 폰의 토큰을 지웁니다. 서버의 기록은 남습니다 |
+
+**지식 경계 (늘 켜짐)** — 역사 인물은 세상을 떠난 뒤의 일을 답으로 만들지 않습니다.
+1. **가드(LLM 전):** 질문에 다음이 있으면 LLM 을 부르지 않고 「내가 세상을 떠난 ○○○○년 뒤의 일이라 나는 알지 못하네…」로 답합니다.
+   - 사망 연도 뒤의 연도·세기 (`1950년`, `20세기`)
+   - 사망 뒤의 사건 (임진왜란 1592 · 병자호란 1636 · 일제 강점 1910 · 광복 1945 · 한국 전쟁 1950 …)
+   - 근대 문물 (스마트폰·대통령·컴퓨터…, 1876년 이전에 떠난 인물)
+   - 사망 뒤에 태어난 인물 (세종에게 「정조」)
+
+   Worker(`ragText.ts` `afterDeath`)와 앱 백엔드 RAG(`KnowledgeBoundary.kt`)가 같은 규칙을 씁니다.
+2. **프롬프트:** 모든 방식의 프롬프트에 「세상을 떠난 해 이후의 일은 전혀 알지 못한다, 모른다고 답하라」 규칙을 늘 넣습니다. 예전의 켜고 끄는 설정은 없앴습니다.
+3. **검색:** RAG 서버 방식은 사후의 기록만 담긴 조각을 검색에서 뺍니다. 그 인물의 유적 조각은 「후세 기록」으로 표시합니다.
+
+**API**
+
+| 경로 | 인증 | 설명 |
+|---|---|---|
+| `POST /auth/signup` `{id, password, name}` | — | 가입 → `{token, user}` |
+| `POST /auth/login` `{id, password}` | — | 로그인 → `{token, user}` |
+| `POST /auth/logout` | Bearer | 세션 삭제 |
+| `GET /me` | Bearer | 계정 + 통계(대화한 인물·저장된 질문·내 RAG 자료·퀴즈 최고 점수) |
+| `POST /me/log` `{figureId, figureName, mode, question, answer, grounded, died}` | Bearer | 대화 기록, 조건이 맞으면 내 RAG 에 더함 → `{saved, learned}` |
+| `GET /me/chats` · `GET /me/learned` | Bearer | 저장된 대화 · 배운 자료 |
+| `GET /me/context/<인물 id>` | Bearer | 백엔드 RAG 용 — 이 인물에 대해 배운 조각 |
+| `GET /me/quiz` · `POST /me/quiz {count}` · `POST /me/quiz/answer {index, choice}` | Bearer | 퀴즈 상태 · 새 퀴즈 · 채점 |
+
+> 모든 요청은 다른 경로와 같이 허용 출처(웹앱)나 앱 키(`X-App-Key`)가 있어야 하고, `/me/*` 는 로그인 토큰(`Authorization: Bearer`)이 더 필요합니다. Workers KV 무료 플랜은 하루 쓰기 1,000회이며, 질문 하나에 1~2회를 씁니다.
+
+### 9.7 RAG 데이터 저장 형식
+
+RAG 가 검색하는 자료는 네 곳에 있습니다. `/rag` 는 질문마다 **①색인 + ②서버 문서 + ④내 RAG** 를 한 번에 BM25(k1=1.2, b=0.75)로 점수 매깁니다. 문서 수·평균 길이·단어 빈도는 셋을 합친 값으로 계산합니다.
+
+| | 자료 | 위치 | 누가 만드나 | 반영 |
+|---|---|---|---|---|
+| ① | 수집 자료 색인 | GitHub Pages `data/rag/` | `scripts/build-rag.ts` (배포 때) | 배포 뒤 1분 |
+| ② | 사람이 쓴 RAG 문서 | KV `doc:<열쇠>` · `idx:docs` | RAG 편집기 · 앱 관리자 업로드 | 1분 |
+| ③ | 외부 RAG 인물 설정 | KV `ext:personas` | 편집기 「외부 RAG 인물 설정」 | 앱 5분 캐시 |
+| ④ | 사용자별 RAG (대화에서 배움) | KV `users/<아이디>/learned.json` | 서버 (`/me/log`) | 바로 (그 사용자만) |
+
+**① 정적 색인** — `public/data/rag/`
+
+```text
+meta.json          { "v": "<내용 해시 12자>", "n": 조각 수, "avgdl": 평균 길이, "buckets": 256, "group": 32,
+                     "docs": [[출처 id, 길이(단어 수), 가장 이른 연도, 가장 늦은 연도], …] }   ← 조각 번호 순
+b/<0..255>.json    { "<단어>": [문서빈도, 조각번호, 빈도, 조각번호, 빈도, …], … }           ← FNV-1a(단어) % 256
+c/<g>.json         [{ "s": 출처 id, "t": 출처 이름, "x": "머리말\n본문 조각" }, …]          ← 조각 32개씩
+```
+- 단어: 한글은 2글자 바이그램, 영문·숫자는 단어 (`ragText.ts` `terms`).
+- 출처 id: 유적 id(`13-0000030000000-31`) · 인물 `fig:<인물 id>` · 독립 자료 `u:<열쇠>`.
+- 조각: 문단 기준 최대 500자, 앞에 「이름 (지정, 시대, 시군)」 머리말이 붙습니다.
+
+**② 서버 RAG 문서** — KV `doc:<열쇠>` (열쇠 = 이름을 NFC 로 맞추고 공백을 뺀 것)
+
+```markdown
+출처: 난중일기
+연도: 1592-1598
+연결: 이순신            ← (선택) 이 인물·유적의 자료로 (없으면 파일 이름과 같은 인물·유적)
+대상: 수원 화성          ← (선택) 이 유적의 원문을 대체
+제외: 예                ← (선택) 대상 유적을 검색에서 뺌
+---
+본문 …
+```
+```json
+// idx:docs — 문서 목록 (업로드할 때 이름을 id 로 풀어 둔다)
+[{ "name": "수원 화성 고침", "key": "수원화성고침", "size": 1234, "sha256": "…", "uploadedAt": "…",
+   "source": "RAG 자료 편집기 (고침)", "years": [1794, 1796],
+   "target": { "id": "13-0000030000000-31", "name": "수원 화성", "head": "수원 화성 (사적, …)" },
+   "hidden": false, "link": { "id": "fig:jeongjo", "name": "정조", "head": "…" } }]
+```
+
+**③ 외부 RAG 인물 설정** — KV `ext:personas`
+
+```json
+{ "figures": { "jeong-yakyong": { "name": "정약용", "era": "조선", "maxYear": 1836, "keyword": "정약용",
+                                   "persona": "조선 후기의 실학자이다. … 어조를 쓴다." } },
+  "updatedAt": "2026-11-24T…" }
+```
+
+**④ 사용자별 파일** — KV `users/<아이디>…` (DB 없이 사용자마다 JSON 파일)
+
+```json
+// users/<아이디>.json — 계정
+{ "id": "heesu", "name": "희수", "salt": "<hex>", "hash": "<PBKDF2 hex>", "iter": 30000, "createdAt": "…" }
+
+// users/<아이디>/chats.json — 대화 기록 (인물별 최근 100개)
+{ "figures": { "jeongjo": { "name": "정조", "messages": [
+    { "q": "화성은 왜 지으셨습니까?", "a": "…", "mode": "RAG", "grounded": true, "at": "…" } ] } } }
+
+// users/<아이디>/learned.json — 근거 없이 LLM 이 답한 질문·답 = 이 사용자의 RAG 자료 (최근 300개)
+[{ "id": "78d96cc8970f", "figureId": "jeongjo", "figureName": "정조",
+   "q": "규장각 검서관은 몇 명이었습니까?", "a": "…", "at": "…" }]
+//   → 검색 조각: 출처 id "me:jeongjo", 이름 "내 대화 기록 (정조)", 본문 "정조에게 물은 것: …\n답: …"
+//     정조와 대화할 때 가중치 1.8
+
+// users/<아이디>/quiz.json — 지금 퀴즈 + 기록 (최근 50개)
+{ "current": { "id": "…", "createdAt": "…",
+               "items": [{ "question": "…", "choices": ["…","…","…","…"], "answer": 1, "explanation": "…", "figureName": "정조" }],
+               "answers": [1, null, …] },
+  "history": [{ "id": "…", "at": "…", "score": 4, "total": 5 }] }
+
+// sessions/<토큰 64자> — { "id": "heesu", "at": "…" } (30일 뒤 자동 삭제)
+```
+
+**3D 모델** — KV `model:<열쇠>`(glb 바이트, 메타데이터 = 목록 항목)와 `idx:models` `[{name, key, id, size, sha256, heightM, uploadedAt}]`. 파일 이름은 인물 이름(`정약용.glb`)입니다.
 
 ---
 
@@ -832,7 +1032,6 @@ MSYS_NO_PATHCONV=1 BASE_PATH=/arHeritage/ npm run build
 | `ANTHROPIC_API_KEY` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Secret | GitHub → Worker 비밀값 | 앱에 포함되지 않음 |
 | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | Secret | GitHub Actions 배포용 | — |
-| 서버 저장소 업로드 키 | `UPLOAD_KEY` (Worker secret) | Worker 비밀값, 로컬 사본 `worker/.dev.vars` · 편집 담당자 브라우저 · 폰 관리자 모드 | 저장소에 포함되지 않음 |
 | `.env.local`, `worker/.dev.vars` | 로컬 파일 | `.gitignore` 로 제외 | — |
 
 Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고, 요청 형식·길이를 zod 로 검증합니다.
@@ -864,7 +1063,7 @@ Worker 는 `ALLOWED_ORIGINS`(GitHub Pages, localhost)에서 온 요청만 받고
 - **RAG 검색**: BM25 키워드 검색이라 표현이 전혀 다른 질문(동의어·의역)은 관련 자료를 놓칠 수 있습니다. 외부 RAG 서버는 HTTPS·CORS 가 준비된 서버만 연결됩니다.
 - **RAG 편집 반영 시간**: 「서버에 저장」 뒤 Worker 가 1분마다 업로드 문서를 확인하므로 최대 1분 뒤 대화에 쓰입니다. 유적 카드 설명은 원문 그대로입니다.
 - **서버 저장소 한도**: Workers KV 무료 플랜은 하루 쓰기 1,000회, 값 하나 25MB 입니다. 3D 모델은 25MB 이하로 압축해서 올립니다.
-- **업로드 키**: 키는 편집 담당자의 브라우저에 저장됩니다. GitHub Pages 는 같은 계정의 페이지가 같은 출처(`samcho93.github.io`)를 쓰므로, 공용 PC 에서는 「기억하기」를 끄세요.
+- **서버 저장소 쓰기 권한**: 업로드 키가 없어서 편집기 주소(또는 앱)를 가진 사람은 누구나 서버 자료를 고치거나 지울 수 있습니다. 시연용이므로 편집기 링크를 팀 밖에 공유하지 마세요. 일반 공개 전에는 쓰기 인증을 다시 넣어야 합니다.
 - **동시 편집**: 반영할 때 최신본 위에 내가 바꾼 항목만 덮어써 다른 사람의 변경은 유지되지만, **같은 자료**를 동시에 고치면 나중에 반영한 쪽이 남습니다.
 - **초상**: 효종·인조·세조·황희·장영실은 아직 초상이 없어 인장·실루엣으로 표시됩니다.
 

@@ -10,10 +10,10 @@
 | 저장소 | R2 | **Workers KV** (`STORE`, 카드 등록 없이 사용). 파일당 25MB 한도. R2 를 켜면 `worker/src/store.ts` 의 KV 호출만 바꾼다 |
 | 목록 | `models.json` 파일 | KV 키 `idx:models` · `idx:docs` (무료 플랜 list 한도 회피). API 경로는 계획과 같음 |
 | RAG 반영 | 업로드 → GitHub Actions 가 색인 재생성 | **Worker 가 업로드 문서를 1분마다 읽어 기존 색인과 함께 BM25 로 검색**(겹쳐 쓰기). Actions·GitHub 토큰 불필요, 1분 안에 반영 |
-| 편집기 | GitHub 커밋 → R2 | `/editor/` 「서버에 저장」 → Worker `/doc` (업로드 키). `rag-edits.json`·GitHub 토큰 제거 |
+| 편집기 | GitHub 커밋 → R2 | `/editor/` 「서버에 저장」 → Worker `/doc`. `rag-edits.json`·GitHub 토큰 제거 |
 | 외부 RAG 편집 | (계획에 없음) | 편집기 「외부 RAG 인물 설정」 탭 → `/store/personas.json`. Android 백엔드 RAG 가 인물 말투·지식 경계·검색어로 사용 |
 | 백엔드 RAG 자료 | (계획에 없음) | 인물(과 그 유적)에 연결된 업로드 문서 조각을 `/store/context/<인물 id>` 로 받아 공공기관 자료 앞에 넣음 |
-| 업로드 키 | `UPLOAD_KEY` secret | 등록함. 로컬 사본은 `worker/.dev.vars` (git 제외) |
+| 업로드 키 | `UPLOAD_KEY` secret | **없앰** (2026-11-23). 쓰기도 읽기와 같이 허용 출처·앱 키 기준. 편집기·앱에 키 입력칸 없음 |
 | `GH_DISPATCH_TOKEN` | 필요 | 불필요 (Actions 재생성을 쓰지 않음) |
 
 **Android (historydam)**
@@ -21,7 +21,6 @@
   - `ServerStoreRepository` 가 서버 목록에서 인물 id 로 모델을 찾아 `filesDir/models/` 에 받는다(sha256 비교).
   - `rememberFigure3dModel()` 이 받은 파일을 먼저 쓰고, 없으면 assets 의 모델(파일이 있을 때만)을 쓴다.
 - 관리자 업로드
-  - 프로필 → 「🗄 서버 저장소 (관리자)」 카드에서 업로드 키를 넣는다.
   - 3D·RAG 폴더를 따로 지정한다.
   - 파일별 상태(새 파일·바뀜·서버와 같음, 목록에 없는 이름 경고)를 보고 「서버에 저장」을 누른다.
 

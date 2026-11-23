@@ -12,8 +12,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { bucketOf, queryTerms } from './ragText.ts';
-import { handleStore, loadOverlay, StoreError, type Overlay } from './store.ts';
+import { afterDeath, afterDeathReply, bucketOf, queryTerms } from './ragText.ts';
+import { handleStore, loadOverlay, mergeOverlay, StoreError, type Overlay } from './store.ts';
+import { currentUser, handleUsers, userOverlay } from './users.ts';
 
 export interface Env {
   ANTHROPIC_API_KEY: string;
@@ -28,8 +29,6 @@ export interface Env {
   AZURE_SPEECH_REGION?: string;
   /** 서버 저장소 (3D 모델·RAG 자료·외부 RAG 인물 설정) — store.ts */
   STORE: KVNamespace;
-  /** 업로드·삭제 키 (Worker secret) */
-  UPLOAD_KEY?: string;
 }
 
 const MODEL = 'claude-opus-5';
@@ -72,7 +71,7 @@ function cors(origin: string | null, env: Env): Record<string, string> {
     ? {
         'Access-Control-Allow-Origin': origin,
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, X-Upload-Key, X-Content-SHA256, X-Height-M',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Content-SHA256, X-Height-M',
         'Access-Control-Expose-Headers': 'ETag',
         'Access-Control-Max-Age': '86400',
         Vary: 'Origin',
@@ -130,6 +129,16 @@ function boundaryRule(f: Figure, on: boolean): string {
   if (!on || !d) return `- ${f.years} 이후의 일은 겪지 못했으므로, 후대의 일을 물으면 "내가 떠난 뒤의 일은 알지 못하네"처럼 답하되 필요하면 짧게 짐작을 덧붙인다.`;
   return `- [지식 경계] 너는 ${d}년에 세상을 떠났다. ${d}년 이후의 사건·인물·제도·기술(후대의 왕과 전쟁, 근현대사, 오늘날의 문물 등)은 전혀 알지 못한다. 그런 것을 물으면 짐작하거나 지어내지 말고, "내가 살아 있을 적에는 들어보지 못한 후세의 일이로다"처럼 네 말씨로 모른다고 답한 뒤 네가 살던 때의 이야기로 돌린다.
 - 근거 자료에 ${d}년 이후의 일(후손이 세운 비석·사당, 이장·복원, 문화유산 지정 등)이 섞여 있어도 네가 겪은 일처럼 말하지 않는다. 지금 방문객이 서 있는 이곳에 관한 것이라면 "후세 사람들이 그리 전한다 들었네"처럼 전해 들은 이야기로만 짧게 말한다.`;
+}
+
+/** 질문이 인물 사후의 일(연도·세기·사건·근대 문물·사후에 태어난 인물)을 물으면 정해진 답을 돌려준다 */
+function boundaryBlock(f: Figure, figures: Figure[], question: string): string | undefined {
+  const d = diedYear(f);
+  if (!d) return undefined;
+  const later = figures
+    .filter((x) => x.id !== f.id)
+    .map((x) => [x.name.split(' ').pop()!.replace(/대왕$/, ''), Number(x.years.match(/\d{4}/)?.[0]) || 0] as [string, number]);
+  return afterDeath(question, d, later) ? afterDeathReply(f.style, d) : undefined;
 }
 
 function speechStyle(f: Figure): string {
@@ -202,12 +211,15 @@ async function chat(req: Request, env: Env, client: Anthropic) {
   const guideSite = body.figureId.startsWith('guide:') ? body.figureId.slice(6) : undefined;
   const f = figures.find((x) => x.id === body.figureId);
   if (!f && !guideSite) throw new HttpError(404, '인물을 찾을 수 없습니다.');
-  const system = guideSite ? await guidePrompt(guideSite, env) : await systemPrompt(f!, env, body.siteId, body.boundary ?? true);
+  // 지식 경계는 늘 켠다: 인물 사후의 일은 답을 만들지 않는다
+  const system = guideSite ? await guidePrompt(guideSite, env) : await systemPrompt(f!, env, body.siteId, true);
 
   // 안내 문구는 빼고, 인물의 첫 인사는 system 에 넣어 첫 메시지가 user 가 되게 한다
   const lines = body.lines.filter((l) => !l.system && l.text.trim()).slice(-MAX_TURNS);
   while (lines.length && !lines[0].mine) lines.shift();
   if (!lines.length) throw new HttpError(400, '질문이 없습니다.');
+  const blocked = f && boundaryBlock(f, figures, lines[lines.length - 1].text);
+  if (blocked) return { text: blocked, boundary: true };
   const messages: Anthropic.Beta.BetaMessageParam[] = lines.map((l) => ({
     role: l.mine ? 'user' : 'assistant',
     content: l.text.slice(0, MAX_CHARS),
@@ -295,9 +307,12 @@ async function retrieve(
   boost: Map<string, number>,
   must: string[],
   limit?: Boundary,
+  /** 로그인 사용자의 RAG 자료 (대화에서 배운 질문·답) */
+  mine?: Overlay,
 ): Promise<{ c: RagChunk; era?: Era }[]> {
   const base = `${env.SITE_BASE}data/rag/`;
-  const [meta, overlay] = await Promise.all([ragMeta(base), loadOverlay(env)]);
+  const [meta, shared] = await Promise.all([ragMeta(base), loadOverlay(env)]);
+  const overlay = mine ? mergeOverlay(shared, mine) : shared;
   const ver = meta.v ? `?v=${meta.v}` : '';
   const qt = queryTerms(query);
   const bucketIds = [...new Set(qt.map(bucketOf))];
@@ -376,6 +391,7 @@ async function retrieve(
 
 async function rag(req: Request, env: Env, client: Anthropic) {
   const body = ChatBody.parse(await req.json());
+  const uid = await currentUser(req, env).catch(() => undefined);
   const { figures } = await fetchJson<{ figures: Figure[] }>(`${env.SITE_BASE}data/figures.json`);
   const guideSite = body.figureId.startsWith('guide:') ? body.figureId.slice(6) : undefined;
   const f = figures.find((x) => x.id === body.figureId);
@@ -386,6 +402,8 @@ async function rag(req: Request, env: Env, client: Anthropic) {
   while (lines.length && !lines[0].mine) lines.shift();
   if (!lines.length || !lines[lines.length - 1].mine) throw new HttpError(400, '질문이 없습니다.');
   const question = lines[lines.length - 1].text.slice(0, MAX_CHARS);
+  const blocked = f && boundaryBlock(f, figures, question);
+  if (blocked) return { text: blocked, sources: [], retrieved: [], boundary: true };
   // 검색어: 이번 질문 + 바로 앞 질문 (대명사로 이어지는 질문 대비)
   const prevQ = lines.slice(0, -1).filter((l) => l.mine).slice(-1)[0]?.text ?? '';
   const boost = new Map<string, number>();
@@ -393,20 +411,22 @@ async function rag(req: Request, env: Env, client: Anthropic) {
   if (f) {
     f.sites.forEach((s) => boost.set(s.id, 1.6));
     boost.set(`fig:${f.id}`, 2);
+    boost.set(`me:${f.id}`, 1.8); // 이 사용자가 이 인물에게 물어 배운 자료
     must.push(`fig:${f.id}`);
   } else {
     boost.set(guideSite!, 2);
     must.push(guideSite!);
   }
-  const died = f && (body.boundary ?? true) ? diedYear(f) : undefined;
+  const died = f ? diedYear(f) : undefined;
   const limit = died ? { died, own: new Set(f!.sites.map((x) => x.id)) } : undefined;
-  const found = await retrieve(env, `${question} ${prevQ}`, boost, must, limit);
+  const mine = uid ? await userOverlay(env, uid).catch(() => undefined) : undefined;
+  const found = await retrieve(env, `${question} ${prevQ}`, boost, must, limit, mine);
 
   const persona = f
     ? `너는 역사 인물 ${f.name}(${f.hanja}, ${f.title}, ${f.years})이다. 유적지를 찾은 방문객과 얼굴을 마주 보고 이야기하는 AR 앱 '역사담'에서, ${f.name} 본인으로서 1인칭으로 대화한다.
 [인물 소개] ${f.bio}
 - 말씨: ${speechStyle(f)}. 옛 어른이 오늘날 사람에게 차분히 이야기하듯 자연스러운 우리말로.
-${boundaryRule(f, body.boundary ?? true)}`
+${boundaryRule(f, true)}`
     : `너는 AR 앱 '역사담'의 문화유산 해설사다. 역사 인물이 아니라 오늘날의 해설사로서 친절한 존댓말로 유적을 안내한다.`;
   const system = `${persona}
 
@@ -583,6 +603,18 @@ export default {
       if (e instanceof SyntaxError) return json({ error: 'JSON 형식이 올바르지 않습니다.' }, 400, headers);
       console.error(e);
       return json({ error: '저장소 오류가 발생했습니다.' }, 500, headers);
+    }
+    // 회원 · 사용자별 저장 · 퀴즈 (/auth/*, /me/*)
+    try {
+      const r = await handleUsers(req, env, path, () => new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }));
+      if (r) return json(r.body, r.status ?? 200, headers);
+    } catch (e) {
+      if (e instanceof StoreError) return json({ error: e.message }, e.status, headers);
+      if (e instanceof z.ZodError) return json({ error: e.issues[0]?.message ?? '요청 형식이 올바르지 않습니다.' }, 400, headers);
+      if (e instanceof SyntaxError) return json({ error: 'JSON 형식이 올바르지 않습니다.' }, 400, headers);
+      if (e instanceof Anthropic.APIError) return json({ error: '퀴즈를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.', upstream: e.status }, 502, headers);
+      console.error(e);
+      return json({ error: '서버 오류가 발생했습니다.' }, 500, headers);
     }
     if (req.method !== 'POST') return json({ error: 'POST 만 지원합니다.' }, 405, headers);
 

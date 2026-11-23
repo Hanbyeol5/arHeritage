@@ -7,7 +7,7 @@
  *   ext:personas    외부 RAG(백엔드) 인물 설정
  * 목록은 KV list 대신 idx:* 키 하나로 관리한다 (무료 플랜 list 한도가 하루 1,000회라서).
  *
- * 읽기는 허용 출처·앱 키, 쓰기(PUT·DELETE)는 업로드 키(X-Upload-Key)가 더 필요하다.
+ * 읽기·쓰기 모두 허용 출처(웹앱·편집기)와 앱 키로 들어온 요청만 받는다 (업로드 키 없음 — 교내 시연용).
  * 파일 이름은 인물·유적 이름 그대로 쓰고(예: 이순신.glb, 수원 화성.md), 비교는 NFC + 공백 제거로 한다.
  */
 import { z } from 'zod';
@@ -15,7 +15,6 @@ import { splitChunks, terms, yearsIn } from './ragText.ts';
 
 export interface StoreEnv {
   STORE: KVNamespace;
-  UPLOAD_KEY?: string;
   SITE_BASE: string;
 }
 
@@ -251,21 +250,42 @@ export function loadOverlay(env: StoreEnv): Promise<Overlay> {
       const s = src?.id ?? `u:${e.key}`;
       const t = src?.name ?? e.name;
       const head = e.target ? e.target.head : e.name;
-      for (const part of splitChunks(body)) {
-        const x = `${head}\n${part}`;
-        const ts = terms(x);
-        const tf = new Map<string, number>();
-        for (const w of ts) tf.set(w, (tf.get(w) ?? 0) + 1);
-        for (const w of tf.keys()) o.df.set(w, (o.df.get(w) ?? 0) + 1);
-        const ys = e.years ?? ((y) => (y.length ? ([Math.min(...y), Math.max(...y)] as [number, number]) : undefined))(yearsIn(part));
-        o.chunks.push({ s, t, x, len: ts.length, tf, years: ys ?? [0, 0] });
-      }
+      addChunks(o, { s, t, head, body, years: e.years });
     });
     return o;
   })();
   const safe = prev ? p.catch(() => prev) : p.catch(() => EMPTY_OVERLAY);
   overlayCache = { at: Date.now(), p: safe };
   return safe;
+}
+
+/** 글 하나를 조각으로 나눠 겹쳐 쓰기에 더한다 (단어 빈도·연도 포함) */
+export function addChunks(o: Overlay, d: { s: string; t: string; head: string; body: string; years?: [number, number] }) {
+  for (const part of splitChunks(d.body)) {
+    const x = `${d.head}\n${part}`;
+    const ts = terms(x);
+    const tf = new Map<string, number>();
+    for (const w of ts) tf.set(w, (tf.get(w) ?? 0) + 1);
+    for (const w of tf.keys()) o.df.set(w, (o.df.get(w) ?? 0) + 1);
+    const ys = d.years ?? ((y) => (y.length ? ([Math.min(...y), Math.max(...y)] as [number, number]) : undefined))(yearsIn(part));
+    o.chunks.push({ s: d.s, t: d.t, x, len: ts.length, tf, years: ys ?? [0, 0] });
+  }
+}
+
+export const emptyOverlay = (): Overlay => ({ excluded: new Set(), replaced: new Map(), chunks: [], df: new Map(), version: '' });
+
+/** 두 겹쳐 쓰기를 합친다 (서버 공용 자료 + 사용자별 자료) */
+export function mergeOverlay(a: Overlay, b: Overlay): Overlay {
+  if (!b.chunks.length && !b.excluded.size) return a;
+  const df = new Map(a.df);
+  for (const [w, n] of b.df) df.set(w, (df.get(w) ?? 0) + n);
+  return {
+    excluded: new Set([...a.excluded, ...b.excluded]),
+    replaced: new Map([...a.replaced, ...b.replaced]),
+    chunks: [...a.chunks, ...b.chunks],
+    df,
+    version: `${a.version}+${b.version}`,
+  };
 }
 
 // ---------- 외부 RAG(백엔드) 인물 설정 ----------
@@ -281,10 +301,6 @@ const Personas = z.object({ figures: z.record(z.string().max(64), Persona) });
 // ---------- HTTP ----------
 type Reply = { body: unknown; status?: number } | Response;
 
-function needUpload(req: Request, env: StoreEnv) {
-  if (!env.UPLOAD_KEY) throw new StoreError(503, '서버에 업로드 키가 설정되지 않았습니다.');
-  if (req.headers.get('X-Upload-Key') !== env.UPLOAD_KEY) throw new StoreError(401, '업로드 키가 올바르지 않습니다.');
-}
 
 /** /store/* · /model/* · /doc/* 처리. 해당 경로가 아니면 undefined */
 export async function handleStore(req: Request, env: StoreEnv, path: string): Promise<Reply | undefined> {
@@ -305,7 +321,6 @@ export async function handleStore(req: Request, env: StoreEnv, path: string): Pr
   if (path === '/store/personas.json') {
     if (m === 'GET') return { body: (await env.STORE.get('ext:personas', 'json')) ?? { figures: {} } };
     if (m === 'PUT') {
-      needUpload(req, env);
       const v = Personas.parse(await req.json());
       const saved = { ...v, updatedAt: new Date().toISOString() };
       await env.STORE.put('ext:personas', JSON.stringify(saved));
@@ -339,7 +354,6 @@ export async function handleStore(req: Request, env: StoreEnv, path: string): Pr
       return new Response(m === 'HEAD' ? null : value, { headers: h });
     }
     if (m === 'PUT') {
-      needUpload(req, env);
       const buf = await req.arrayBuffer();
       if (buf.byteLength > MAX_MODEL_BYTES) throw new StoreError(413, `모델은 ${MAX_MODEL_BYTES / 1024 / 1024}MB 이하만 저장할 수 있습니다. 압축해 주세요.`);
       if (new TextDecoder().decode(buf.slice(0, 4)) !== 'glTF') throw new StoreError(400, 'glb(glTF 바이너리) 파일이 아닙니다.');
@@ -361,7 +375,6 @@ export async function handleStore(req: Request, env: StoreEnv, path: string): Pr
       return { body: { model: entry, ...(f ? {} : { warning: '인물 목록에 없는 이름입니다. 앱에서 이 모델을 찾지 못합니다.' }) } };
     }
     if (m === 'DELETE') {
-      needUpload(req, env);
       await env.STORE.delete(`model:${key}`);
       await writeIdx<ModelEntry>(env, 'idx:models', null, key);
       return { body: { deleted: key } };
@@ -379,7 +392,6 @@ export async function handleStore(req: Request, env: StoreEnv, path: string): Pr
       return new Response(text, { headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Cache-Control': 'no-store' } });
     }
     if (m === 'PUT') {
-      needUpload(req, env);
       const text = await req.text();
       if (text.length > MAX_DOC_CHARS) throw new StoreError(413, '문서가 너무 깁니다 (20만 자 이하).');
       const { entry, warning } = await describeDoc(env, name, text);
@@ -390,7 +402,6 @@ export async function handleStore(req: Request, env: StoreEnv, path: string): Pr
       return { body: { doc: full, ...(warning ? { warning } : {}) } };
     }
     if (m === 'DELETE') {
-      needUpload(req, env);
       await env.STORE.delete(`doc:${key}`);
       await writeIdx<DocEntry>(env, 'idx:docs', null, key);
       overlayCache = undefined;
